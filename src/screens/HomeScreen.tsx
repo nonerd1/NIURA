@@ -742,7 +742,7 @@ const HomeScreen = () => {
         {/* BLE Status Indicator */}
         {isScanning && (
           <View style={styles.statusIndicator}>
-            <MaterialCommunityIcons name="bluetooth-settings" size={18} color="#FFF" />
+            <MaterialCommunityIcons name="bluetooth-searching" size={18} color="#FFF" />
             <Text style={styles.statusText}>Scanning...</Text>
           </View>
         )}
@@ -870,15 +870,15 @@ const HomeScreen = () => {
                 focusValue={focusValue}
                 stressValue={stressValue}
               />
-            </View>
+        </View>
 
             {/* Add BLE controls right after the speedometers */}
             {renderBLEControls()}
 
-            {/* Graph */}
-            <View style={styles.graphContainer}>
+        {/* Graph */}
+        <View style={styles.graphContainer}>
               <Text style={styles.graphTitle}>Today's Metrics</Text>
-              <MetricsGraph
+          <MetricsGraph
                 labels={focusData.labels}
                 datasets={[
                   {
@@ -892,14 +892,14 @@ const HomeScreen = () => {
                     label: 'Stress'
                   }
                 ]}
-                lastUpdated={new Date().toLocaleTimeString()}
-                status={{
+            lastUpdated={new Date().toLocaleTimeString()}
+            status={{
                   level: focusValue <= 1 ? 'Low' : focusValue <= 2 ? 'Medium' : 'High',
                   value: focusValue
-                }}
+            }}
                 type="focus"
-              />
-            </View>
+            />
+        </View>
 
             {/* Best Focus Time */}
             <BestFocusTime />
@@ -929,9 +929,9 @@ const HomeScreen = () => {
                 </View>
               </Pressable>
             </View>
-          </View>
+      </View>
         </ScrollView>
-      </LinearGradient>
+    </LinearGradient>
     </SafeAreaView>
   );
 };

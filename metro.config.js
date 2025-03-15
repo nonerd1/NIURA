@@ -1,10 +1,21 @@
 const { getDefaultConfig } = require('expo/metro-config');
 const config = getDefaultConfig(__dirname);
 
-// Expo doesn't support these options directly in the exported config
-// We need to modify the config object before exporting it
-config.server = {
-  https: true
-};
-
-module.exports = config; 
+module.exports = {
+  ...config,
+  resolver: {
+    ...config.resolver
+  },
+  transformer: {
+    ...config.transformer
+  },
+  // Enable HTTPS for development server
+  server: {
+    protocol: 'https',
+    port: 8081,
+    enableVisualizer: true,
+    enhanceMiddleware: (middleware) => {
+      return middleware;
+    }
+  }
+}; 

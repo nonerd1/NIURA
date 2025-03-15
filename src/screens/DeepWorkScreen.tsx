@@ -954,7 +954,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: darkTheme.background.primary,
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 0,
   },
   scrollContentContainer: {
     paddingBottom: 120, // Add significant bottom padding for scrolling

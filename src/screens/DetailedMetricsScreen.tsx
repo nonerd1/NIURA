@@ -137,6 +137,7 @@ const DetailedMetricsScreen = ({ route }: DetailedMetricsScreenProps) => {
           yAxisSuffix=""
           yAxisLabel=""
           segments={4}
+          yMax={3}
         />
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>

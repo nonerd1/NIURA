@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Platform, PermissionsAndroid, NativeEventEmitter, NativeModules } from 'react-native';
-import { BleManager, Device, BleError, Characteristic } from 'react-native-ble-plx';
+import { BleManager, Device, Characteristic } from 'react-native-ble-plx';
 
 // Define your ESP32 specific information
 const ESP32_NAME = 'NIURA-ESP32'; // Change this to match your ESP32 device name

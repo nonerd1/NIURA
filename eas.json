@@ -7,14 +7,8 @@
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "resourceClass": "m-medium",
-        "simulator": false,
-        "buildConfiguration": "Debug"
-      },
-      "env": {
-        "EXPO_PUBLIC_BLE_ENABLED": "true"
-      },
-      "channel": "development"
+        "resourceClass": "m-medium"
+      }
     },
     "preview": {
       "distribution": "internal",
