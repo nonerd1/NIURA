@@ -8,7 +8,7 @@ import BluetoothScreen from '../screens/BluetoothScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import TherapyJokesScreen from '../screens/TherapyJokesScreen';
 import UIKitScreen from '../screens/UIKitScreen';
-import SessionSummaryScreen from '../screens/SessionSummaryScreen';
+import SessionSummary from '../screens/SessionSummary';
 import { RootStackParamList } from '../types/navigation';
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -88,12 +88,11 @@ const AppNavigator = () => {
       />
       <Stack.Screen 
         name="SessionSummary" 
-        component={SessionSummaryScreen}
+        component={SessionSummary}
         options={{
           headerShown: false,
           presentation: 'modal',
           cardStyle: { backgroundColor: 'transparent' },
-          gestureEnabled: false, // Disable swipe to dismiss for session summary
         }}
       />
     </Stack.Navigator>

@@ -39,6 +39,11 @@ export type RootStackParamList = {
     score: number;
     level: string;
   };
+  DeepWork: undefined;
+  Bluetooth: undefined;
+  Profile: undefined;
+  TherapyJokes: undefined;
+  UIKit: undefined;
   SessionSummary: {
     duration: number;
     focusData: number[];
@@ -47,11 +52,6 @@ export type RootStackParamList = {
     completedTasks: number;
     totalTasks: number;
   };
-  DeepWork: undefined;
-  Bluetooth: undefined;
-  Profile: undefined;
-  TherapyJokes: undefined;
-  UIKit: undefined;
 };
 
 export type NavigationProp = import('@react-navigation/native-stack').NativeStackNavigationProp<RootStackParamList>; 
