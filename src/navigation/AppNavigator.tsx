@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
+import { Linking } from 'react-native';
 import BottomTabNavigator from './BottomTabNavigator';
 import DetailedMetricsScreen from '../screens/DetailedMetricsScreen';
 import MentalReadinessDetailsScreen from '../screens/MentalReadinessDetailsScreen';
@@ -9,18 +10,50 @@ import ProfileScreen from '../screens/ProfileScreen';
 import TherapyJokesScreen from '../screens/TherapyJokesScreen';
 import UIKitScreen from '../screens/UIKitScreen';
 import SessionSummary from '../screens/SessionSummary';
+import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
+import VerificationScreen from '../screens/VerificationScreen';
 import { RootStackParamList } from '../types/navigation';
+import { linking, handleOAuthCallback } from './linking';
 
 const Stack = createStackNavigator<RootStackParamList>();
 
 const AppNavigator = () => {
+  useEffect(() => {
+    // Handle deep links
+    const handleDeepLink = ({ url }: { url: string }) => {
+      if (url) {
+        handleOAuthCallback(url);
+      }
+    };
+
+    // Handle deep link when app is already running
+    Linking.addEventListener('url', handleDeepLink);
+
+    // Handle deep link when app is not running and is launched by URL
+    Linking.getInitialURL().then(url => {
+      if (url) {
+        handleOAuthCallback(url);
+      }
+    });
+
+    return () => {
+      // Clean up
+      Linking.removeAllListeners('url');
+    };
+  }, []);
+
   return (
     <Stack.Navigator
+      initialRouteName="Login"
       screenOptions={{
         headerShown: false,
         presentation: 'modal',
       }}
     >
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen name="Verification" component={VerificationScreen} />
       <Stack.Screen name="MainTabs" component={BottomTabNavigator} />
       <Stack.Screen 
         name="DetailedMetrics" 

@@ -1,0 +1,81 @@
+require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
+require File.join(File.dirname(`node --print "require.resolve('react-native/package.json')"`), "scripts/react_native_pods")
+
+require 'json'
+podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
+
+# Disable all experimental features
+ENV['RCT_NEW_ARCH_ENABLED'] = '0'
+ENV['USE_HERMES'] = '0'
+ENV['USE_FABRIC'] = '0'
+ENV['RCT_ENABLE_FAST_REFRESH'] = '1'
+ENV['CC'] = 'clang'
+ENV['CXX'] = 'clang++'
+ENV['RCT_CODEGEN_DISCOVERY_SCRIPT_PHASE'] = '0'
+
+# Speed optimizations
+ENV['OTHER_CFLAGS'] = '-O2'
+ENV['SWIFT_COMPILATION_MODE'] = 'singlefile'
+
+platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
+install! 'cocoapods',
+  :deterministic_uuids => false,
+  :integrate_targets => true
+
+prepare_react_native_project!
+
+target 'NIURA' do
+  use_expo_modules!
+  config = use_native_modules!
+
+  use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
+  use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
+
+  flags = get_default_flags()
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    :hermes_enabled => false,
+    :fabric_enabled => false,
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false
+    )
+
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        # Speed up build times
+        config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '2'
+        config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-O'
+        config.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
+        config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
+        
+        # Disable bitcode
+        config.build_settings['ENABLE_BITCODE'] = 'NO'
+        
+        # Increase parallelism
+        config.build_settings['SWIFT_THREADS'] = '4'
+        
+        if target.name == "ReactCodegen"
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.4'
+          # Skip codegen completely
+          target.build_phases.clear
+        end
+      end
+
+      # Remove all script phases to speed up build
+      if target.name != "React-Core" && target.name != "React"
+        target.build_phases.each do |phase|
+          if phase.respond_to?(:name) && (phase.name.include?("Script") || phase.name.include?("Copy"))
+            phase.shell_script = "true"
+          end
+        end
+      end
+    end
+  end
+end

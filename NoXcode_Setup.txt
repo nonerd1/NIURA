@@ -1,0 +1,37 @@
+Running NIURA Without Xcode - Backend Only Setup
+
+Since we can't use Xcode on Ryan's laptop, we'll set it up to run just the backend services. The app is already installed on your phone, so we just need to get the backend running properly.
+
+1. Clean up first:
+```bash
+# Kill any existing processes
+pkill -f "node|expo|metro"
+
+# Clear any previous server instances
+pkill -f uvicorn
+```
+
+2. Start just the backend server:
+```bash
+cd RyanApp/backend
+source venv/bin/activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+```
+
+That's it! The backend should now be running on port 8001.
+
+Important Notes:
+- We don't need Expo/Metro since the app is already installed
+- The app on your phone will automatically connect to the backend
+- No QR codes needed
+- No Xcode needed
+
+If the backend server doesn't start:
+1. Make sure you're in the correct directory
+2. Check that Python virtual environment is activated
+3. Verify port 8001 is available
+
+Remember:
+- The app is already on your phone
+- We just need the backend running on Ryan's laptop
+- The frontend will automatically connect to the backend 

@@ -9,6 +9,11 @@ export type RootTabParamList = {
 };
 
 export type RootStackParamList = {
+  Login: undefined;
+  Register: undefined;
+  Verification: {
+    email: string;
+  };
   MainTabs: NavigatorScreenParams<RootTabParamList>;
   DetailedMetrics: {
     focusData: number[];

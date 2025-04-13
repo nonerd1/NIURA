@@ -1,0 +1,31 @@
+Skip the QR Code - Direct Xcode Launch Instructions
+
+Let's forget about the QR code and Expo Go completely. Instead, we'll run the app directly through Xcode:
+
+1. Kill all existing processes first:
+```bash
+pkill -f "node|expo|metro"
+```
+
+2. Make sure you're in the RyanApp directory:
+```bash
+cd RyanApp
+```
+
+3. Open the Xcode workspace:
+```bash
+open ios/RyanApp.xcworkspace
+```
+
+4. In Xcode:
+   - Select your iPhone as the target device at the top
+   - Click the Play (▶️) button to build and run
+   - If asked, trust the developer certificate
+
+That's it. The app should install and run directly on your phone.
+
+If Xcode asks to trust developer:
+1. On your iPhone: Settings → General → VPN & Device Management
+2. Trust the developer certificate
+
+No QR codes, no Expo Go, no tunneling needed. Just direct installation through Xcode. 

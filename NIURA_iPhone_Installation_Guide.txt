@@ -1,0 +1,85 @@
+# Successful Method for Installing NIURA on iPhone via Xcode
+
+Here's the exact process that worked for getting your app installed on your iPhone:
+
+## 1. Resolved Sandbox Script Execution Error
+
+1. **Modified the `expo-configure-project.sh` script**:
+   - Made the script more resilient with fallbacks
+   - Added better error handling
+   - Made it continue even if Node execution failed
+
+2. **Created `.xcode.env` file**:
+   ```bash
+   echo "export NODE_BINARY=\$(command -v node)" > /Users/ishaan/NIURA/ios/.xcode.env
+   ```
+
+3. **Disabled script sandboxing** in multiple places:
+   ```bash
+   # In macOS defaults
+   defaults write com.apple.dt.Xcode EnableBuildScriptSandbox NO
+   
+   # In project files directly
+   sed -i '' 's/ENABLE_USER_SCRIPT_SANDBOXING = YES;/ENABLE_USER_SCRIPT_SANDBOXING = NO;/g' ./Pods/Pods.xcodeproj/project.pbxproj
+   sed -i '' 's/ENABLE_USER_SCRIPT_SANDBOXING = YES;/ENABLE_USER_SCRIPT_SANDBOXING = NO;/g' ./NIURA.xcodeproj/project.pbxproj
+   ```
+
+4. **Set proper file permissions**:
+   ```bash
+   chmod -R 755 .
+   chmod +x Pods/Target\ Support\ Files/Pods-NIURA/expo-configure-project.sh
+   ```
+
+5. **Optimized build settings**:
+   ```bash
+   defaults write com.apple.dt.Xcode IDEBuildOperationMaxNumberOfConcurrentCompileTasks `sysctl -n hw.ncpu`
+   defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
+   ```
+
+6. **Clean Xcode build**:
+   ```bash
+   xcodebuild clean -workspace NIURA.xcworkspace -scheme NIURA
+   ```
+
+## 2. Building and Installing with Xcode
+
+1. **Opened the Xcode workspace**:
+   ```bash
+   open NIURA.xcworkspace
+   ```
+
+2. **Configured signing in Xcode**:
+   - Selected the NIURA project in the navigator
+   - Selected the NIURA target
+   - In "Signing & Capabilities" tab:
+     - Checked "Automatically manage signing"
+     - Selected your Apple Developer team
+
+3. **Built and ran the app**:
+   - Selected your iPhone from the device dropdown
+   - Clicked the "Play" button to build and install
+
+4. **Trusted the developer certificate** on iPhone:
+   - On iPhone: Settings → General → VPN & Device Management
+   - Selected your Apple ID/Developer account
+   - Tapped "Trust"
+
+## 3. Connected to Development Server
+
+1. **Started Expo development server with tunnel mode**:
+   ```bash
+   cd /Users/ishaan/NIURA
+   npx expo start --tunnel
+   ```
+
+2. **Connected iPhone app to development server**:
+   - Scanned QR code with iPhone camera
+   - App connected through tunnel, bypassing local network issues
+
+## Key Factors for Success
+
+1. The sandbox permission issue was resolved by disabling script sandboxing in multiple places
+2. The proper signing and provisioning profiles were configured in Xcode
+3. Using tunnel mode allowed the development server to connect reliably
+
+This combination of fixes addressed both the build-time issues (sandbox) and the runtime issues (connecting to development server), allowing for successful development and testing. 

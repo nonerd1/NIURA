@@ -1,0 +1,121 @@
+Fixing ImportError in NIURA Backend
+
+The error you're seeing is an ImportError when trying to import the database module:
+"ImportError: attempted relative import beyond top-level package"
+
+This error occurs in the backend code, specifically in the sessions router when trying to import the database:
+```python
+from ..database.database import get_db
+```
+
+To fix this, we need to:
+
+1. First, check the project structure:
+   ```
+   RyanApp/
+   ├── backend/
+   │   ├── app/
+   │   │   ├── __init__.py
+   │   │   ├── main.py
+   │   │   ├── database/
+   │   │   │   ├── __init__.py
+   │   │   │   └── database.py
+   │   │   └── routers/
+   │   │       ├── __init__.py
+   │   │       ├── sessions.py
+   │   │       └── other_routers.py
+   │   └── requirements.txt
+   ```
+
+2. Fix the import statement in sessions.py:
+   Change from:
+   ```python
+   from ..database.database import get_db
+   ```
+   To:
+   ```python
+   from app.database.database import get_db
+   ```
+
+3. Make sure all necessary __init__.py files exist:
+   ```bash
+   touch backend/app/__init__.py
+   touch backend/app/database/__init__.py
+   touch backend/app/routers/__init__.py
+   ```
+
+4. Verify the Python path:
+   Add this to the beginning of wake-up.sh before starting uvicorn:
+   ```bash
+   export PYTHONPATH="${PYTHONPATH}:${PWD}/backend"
+   ```
+
+5. Check database.py location:
+   Ensure database.py is in the correct location:
+   ```bash
+   ls backend/app/database/database.py
+   ```
+
+6. Verify the imports in main.py:
+   ```python
+   from app.routers import users, sessions, measurements, insights, devices
+   from app.database.database import get_db
+   ```
+
+Steps to implement:
+
+1. First, check if all __init__.py files exist:
+   ```bash
+   find backend/app -type d -exec touch {}/__init__.py \;
+   ```
+
+2. Update the imports in sessions.py to use absolute imports:
+   ```python
+   # sessions.py
+   from app.database.database import get_db
+   ```
+
+3. Add PYTHONPATH to wake-up.sh:
+   Add this line before starting uvicorn:
+   ```bash
+   export PYTHONPATH="${PYTHONPATH}:${PWD}/backend"
+   ```
+
+4. Restart the server:
+   ```bash
+   pkill -f uvicorn
+   niura wake up
+   ```
+
+If the error persists:
+
+1. Check if the database module is properly installed:
+   ```bash
+   pip install -r backend/requirements.txt
+   ```
+
+2. Verify the virtual environment is activated:
+   ```bash
+   source backend/venv/bin/activate
+   ```
+
+3. Try running uvicorn directly to see more detailed errors:
+   ```bash
+   cd backend
+   uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+   ```
+
+Common Issues:
+1. Missing __init__.py files
+2. Incorrect import paths
+3. PYTHONPATH not set correctly
+4. Virtual environment not activated
+5. Dependencies not installed
+
+Remember:
+- Always use absolute imports in FastAPI applications
+- Make sure PYTHONPATH includes the backend directory
+- Keep all __init__.py files in place
+- Verify the project structure matches the expected layout
+
+After making these changes, the import error should be resolved and the backend should start properly. 

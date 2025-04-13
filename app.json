@@ -8,9 +8,17 @@
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/d2b21124-89a2-432c-badc-b1ebddaf268f",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "io.niura.app",
+      "buildNumber": "1",
+      "minimumOSVersion": "15.1",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -19,7 +27,14 @@
               "NSExceptionAllowsInsecureHTTPLoads": true
             }
           }
-        }
+        },
+        "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to connect to NIURA devices",
+        "NSBluetoothPeripheralUsageDescription": "This app uses Bluetooth to connect to NIURA devices",
+        "UIBackgroundModes": ["bluetooth-central", "bluetooth-peripheral"]
+      },
+      "associatedDomains": ["applinks:niura.app"],
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
@@ -35,7 +50,24 @@
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN"
       ],
-      "package": "io.niura.app"
+      "package": "io.niura.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "myapp",
+              "host": "callback"
+            },
+            {
+              "scheme": "myapp",
+              "host": "signout"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",

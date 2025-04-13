@@ -13,6 +13,7 @@ module.exports = {
   server: {
     protocol: 'https',
     port: 8081,
+    host: '10.198.160.137',
     enableVisualizer: true,
     enhanceMiddleware: (middleware) => {
       return middleware;
