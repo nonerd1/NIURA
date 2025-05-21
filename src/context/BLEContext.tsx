@@ -40,6 +40,7 @@ interface BLEContextType {
   startBackgroundMonitoring: () => Promise<void>;
   stopBackgroundMonitoring: () => Promise<void>;
   isBackgroundMonitoring: boolean;
+  startScanning: () => Promise<void>;
 }
 
 const BLEContext = createContext<BLEContextType | undefined>(undefined);
@@ -438,6 +439,34 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [isBackgroundMonitoring, connectedDevice]);
 
+  const startScanning = async () => {
+    try {
+      const hasPermission = await requestAndroidPermissions();
+      if (!hasPermission) {
+        setError('Bluetooth permission denied');
+        return;
+      }
+
+      setIsScanning(true);
+      setError(null);
+
+      bleManager.startDeviceScan([SERVICE_UUID], null, (error, device) => {
+        if (error) {
+          setError(error.message);
+          setIsScanning(false);
+          return;
+        }
+
+        if (device?.name === 'ESP32_EEG') {
+          connectToDevice();
+        }
+      });
+    } catch (error: any) {
+      setError(error.message);
+      setIsScanning(false);
+    }
+  };
+
   return (
     <BLEContext.Provider
       value={{
@@ -452,7 +481,8 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         lastUpdated,
         startBackgroundMonitoring,
         stopBackgroundMonitoring,
-        isBackgroundMonitoring
+        isBackgroundMonitoring,
+        startScanning
       }}
     >
       {children}

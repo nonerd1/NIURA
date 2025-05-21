@@ -1,8 +1,8 @@
 import BackgroundService from 'react-native-background-actions';
-import { BleManager, Device, State } from 'react-native-ble-plx';
+import { BleManager, Device, State, BleError } from 'react-native-ble-plx';
 import { logDebug } from '../utils/logger';
 import { decode } from 'base-64';
-import { Platform, NativeEventEmitter } from 'react-native';
+import { Platform } from 'react-native';
 
 // Define your ESP32 specific information
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
@@ -51,7 +51,6 @@ class BackgroundBLEService {
   private subscriptions: Array<{ remove: () => void }> = [];
 
   private constructor() {
-    // Initialize BLE Manager with proper configuration
     this.bleManager = new BleManager({
       restoreStateIdentifier: 'niuraBackgroundBLE',
       restoreStateFunction: (restoredState) => {
@@ -72,25 +71,25 @@ class BackgroundBLEService {
   private setupEventListeners() {
     try {
       // Monitor BLE state changes using the manager's method
-      this.subscriptions.push(
-        this.bleManager.onStateChange((state) => {
-          logDebug('BLE state changed:', state);
-          if (state === State.PoweredOff) {
-            this.handleDisconnection();
-          }
-        }, true)
-      );
+      const stateSubscription = this.bleManager.onStateChange((state) => {
+        logDebug('BLE state changed:', state);
+        if (state === State.PoweredOff) {
+          this.handleDisconnection();
+        }
+      }, true);
+
+      this.subscriptions.push({ remove: () => stateSubscription.remove() });
 
       // Device disconnection listener
       if (this.connectedDevice) {
-        this.subscriptions.push(
-          this.connectedDevice.onDisconnected((error) => {
-            if (error) {
-              logDebug('Device disconnection error:', error);
-            }
-            this.handleDisconnection();
-          })
-        );
+        const disconnectSubscription = this.connectedDevice.onDisconnected((error) => {
+          if (error) {
+            logDebug('Device disconnection error:', error);
+          }
+          this.handleDisconnection();
+        });
+
+        this.subscriptions.push({ remove: () => disconnectSubscription.remove() });
       }
 
       // Device scanning and monitoring
@@ -110,13 +109,26 @@ class BackgroundBLEService {
     }
   }
 
-  private async handleDisconnection() {
-    if (this.isRunning && this.connectedDevice) {
+  private async handleDisconnection(error?: BleError) {
+    logDebug('Device disconnected:', error?.message || 'No error details');
+    
+    if (this.connectedDevice) {
       try {
-        logDebug('Device disconnected, attempting to reconnect...');
+        // Ensure we properly cancel the connection
+        await this.bleManager.cancelDeviceConnection(this.connectedDevice.id);
+      } catch (e) {
+        logDebug('Error canceling device connection:', e);
+      }
+      this.connectedDevice = null;
+    }
+
+    // Attempt to reconnect if the background service is still running
+    if (this.isRunning) {
+      logDebug('Attempting to reconnect...');
+      try {
         await this.connectToDevice();
-      } catch (error) {
-        logDebug('Reconnection failed:', error);
+      } catch (e) {
+        logDebug('Reconnection attempt failed:', e);
       }
     }
   }
@@ -134,41 +146,52 @@ class BackgroundBLEService {
 
   private async monitorDevice() {
     if (!this.connectedDevice) {
-      logDebug('No device connected, cannot start monitoring');
+      logDebug('No device connected to monitor');
       return;
     }
 
     try {
-      logDebug('Setting up device monitoring...');
-      await this.connectedDevice.discoverAllServicesAndCharacteristics();
-      
-      // Monitor characteristic
-      this.connectedDevice.monitorCharacteristicForService(
+      // Monitor the characteristic for notifications
+      const subscription = this.connectedDevice.monitorCharacteristicForService(
         SERVICE_UUID,
         DATA_CHARACTERISTIC_UUID,
         (error, characteristic) => {
           if (error) {
-            logDebug('Background monitoring error:', error);
+            logDebug('Characteristic monitoring error:', error);
             return;
           }
 
-          if (characteristic?.value) {
-            try {
-              const rawValue = decode(characteristic.value);
-              logDebug('Received value:', rawValue);
-              if (this.dataCallback) {
-                this.dataCallback(rawValue);
-              }
-            } catch (e) {
-              logDebug('Error processing background value:', e);
+          if (!characteristic?.value) {
+            logDebug('No characteristic value received');
+            return;
+          }
+
+          try {
+            const decodedValue = decode(characteristic.value);
+            logDebug('Received value:', decodedValue);
+            if (this.dataCallback) {
+              this.dataCallback(decodedValue);
             }
+          } catch (decodeError) {
+            logDebug('Error decoding characteristic value:', decodeError);
           }
         }
       );
-      logDebug('Monitoring setup complete');
+
+      this.subscriptions.push(subscription);
+      logDebug('Device monitoring started successfully');
     } catch (error) {
-      logDebug('Error setting up background monitoring:', error);
-      throw error;
+      logDebug('Failed to start device monitoring:', error);
+      
+      // If monitoring fails, attempt to reconnect
+      if (this.isRunning) {
+        logDebug('Attempting to reconnect due to monitoring failure');
+        try {
+          await this.handleDisconnection();
+        } catch (reconnectError) {
+          logDebug('Reconnection attempt failed:', reconnectError);
+        }
+      }
     }
   }
 
@@ -323,34 +346,48 @@ class BackgroundBLEService {
   }
 
   public async cleanup() {
+    logDebug('Starting cleanup process...');
+    
+    // First stop the background service
+    if (this.isRunning) {
+      await this.stopBackgroundService();
+    }
+    
     // Remove all subscriptions
-    this.subscriptions.forEach(subscription => {
+    for (const subscription of this.subscriptions) {
       try {
         subscription.remove();
       } catch (error) {
         logDebug('Error removing subscription:', error);
       }
-    });
+    }
     this.subscriptions = [];
     
-    if (this.isRunning) {
-      await this.stopBackgroundService();
-    }
-    
+    // Disconnect from device if connected
     if (this.connectedDevice) {
       try {
         await this.bleManager.cancelDeviceConnection(this.connectedDevice.id);
+        this.connectedDevice = null;
       } catch (error) {
         logDebug('Error disconnecting device:', error);
       }
     }
 
-    // Destroy BLE manager if needed
+    // Stop any ongoing scan
+    try {
+      this.bleManager.stopDeviceScan();
+    } catch (error) {
+      logDebug('Error stopping device scan:', error);
+    }
+
+    // Destroy BLE manager
     try {
       await this.bleManager.destroy();
     } catch (error) {
       logDebug('Error destroying BLE manager:', error);
     }
+    
+    logDebug('Cleanup process completed');
   }
 }
 

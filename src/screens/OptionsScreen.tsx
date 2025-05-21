@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Switch,
   SafeAreaView,
+  StyleSheet,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -110,12 +111,22 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
   );
 };
 
-const OptionsScreen = () => {
+const OptionsScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
   const { isDarkMode, toggleTheme, colors } = useTheme();
-  const [notifications, setNotifications] = useState(true);
-  const [dataSharing, setDataSharing] = useState(false);
-  const [connected, setConnected] = useState(true);
+  const [settings, setSettings] = useState({
+    notifications: true,
+    darkMode: false,
+    hapticFeedback: true,
+    autoConnect: true,
+  });
+
+  const toggleSetting = (key: keyof typeof settings) => {
+    setSettings(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
 
   const userProfile = {
     name: 'Pari Patel',
@@ -169,10 +180,10 @@ const OptionsScreen = () => {
               title="Notifications"
               rightElement={
                 <Switch
-                  value={notifications}
-                  onValueChange={setNotifications}
+                  value={settings.notifications}
+                  onValueChange={() => toggleSetting('notifications')}
                   trackColor={{ false: '#313e5c', true: '#4287f5' }}
-                  thumbColor={notifications ? '#FFFFFF' : '#7a889e'}
+                  thumbColor={settings.notifications ? '#FFFFFF' : '#7a889e'}
                 />
               }
               showChevron={false}
@@ -186,10 +197,10 @@ const OptionsScreen = () => {
               title="Dark Mode"
               rightElement={
                 <Switch
-                  value={isDarkMode}
-                  onValueChange={toggleTheme}
+                  value={settings.darkMode}
+                  onValueChange={() => toggleSetting('darkMode')}
                   trackColor={{ false: '#313e5c', true: '#4287f5' }}
-                  thumbColor={isDarkMode ? '#FFFFFF' : '#7a889e'}
+                  thumbColor={settings.darkMode ? '#FFFFFF' : '#7a889e'}
                 />
               }
               showChevron={false}
@@ -239,5 +250,33 @@ const OptionsScreen = () => {
     </SafeAreaView>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  section: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+});
 
 export default OptionsScreen; 

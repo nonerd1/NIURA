@@ -1,0 +1,61 @@
+NIURA App Setup Instructions for Cursor AI
+
+1. Project Structure:
+   - This is a React Native Expo app
+   - Uses AWS Cognito (but authentication is currently bypassed)
+   - Uses BLE for device connectivity
+   - Voice commands enabled
+
+2. Important Files Modified:
+   - App.tsx: Main app configuration, authentication removed
+   - src/navigation/AppNavigator.tsx: Navigation setup, login screens removed
+   - src/types/navigation.ts: Navigation types
+   - src/services/auth.ts: Authentication service (currently bypassed)
+
+3. Steps to Set Up:
+   a) First, install dependencies:
+      ```
+      npm install --legacy-peer-deps
+      ```
+   
+   b) Make sure these packages are installed:
+      - aws-amplify
+      - @aws-amplify/ui-react-native
+      - amazon-cognito-identity-js
+      - @react-native-async-storage/async-storage
+      - @react-native-community/netinfo
+      - react-native-get-random-values
+
+   c) The app is configured to skip authentication and go directly to main functionality
+   
+   d) Voice command "Niura wake up" should work immediately
+
+4. AWS Configuration:
+   - AWS Cognito is configured but bypassed
+   - User Pool ID: us-east-2_wzLPL1i6B
+   - Client ID: 2j3rbovc4b5lh0h9kdeordp1cb
+   - Region: us-east-2
+
+5. Running the App:
+   - For iOS: Use Xcode to build and run
+   - Make sure to have Xcode and iOS development environment set up
+   - The app should start directly at the main tabs
+   - No login required
+
+6. Known Working State:
+   - Authentication is bypassed
+   - Voice commands work
+   - BLE connectivity works
+   - All main features accessible
+
+7. Important Notes:
+   - Do not enable authentication without proper testing
+   - Keep the current navigation setup that skips login
+   - The app is configured for immediate use without any login requirements
+
+8. If Changes Needed:
+   - Main navigation is in AppNavigator.tsx
+   - Authentication logic (currently bypassed) is in auth.ts
+   - Voice command setup remains unchanged
+
+For any issues or questions, refer to the original conversation in Cursor AI where we disabled authentication and set up direct access. 

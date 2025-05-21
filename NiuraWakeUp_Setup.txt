@@ -1,0 +1,181 @@
+NIURA Wake Up Command Setup Guide
+
+1. Command Definition and Location
+--------------------------------
+The "niura wake up" command is defined in the wake-up.sh script, which is a bash script that handles the entire startup process. The script is made executable and added as an alias in the user's shell configuration (.zshrc).
+
+2. How the Command Works
+------------------------
+The command performs several key functions in sequence:
+
+a) Network IP Detection:
+   - Automatically detects the current network IP using ifconfig
+   - Filters out localhost (127.0.0.1)
+   - Uses the first valid network IP found
+
+b) API Configuration Update:
+   - Updates the API URL in src/services/api.ts
+   - Uses the detected IP address
+   - Sets the port to 8001
+
+c) Process Management:
+   - Kills any existing backend processes (uvicorn)
+   - Kills any existing Metro bundler processes
+   - Ensures a clean startup environment
+
+d) Backend Server Startup:
+   - Activates the Python virtual environment
+   - Starts the FastAPI backend server
+   - Runs on all network interfaces (0.0.0.0)
+   - Uses port 8001
+   - Enables auto-reload for development
+
+e) Frontend Server Startup:
+   - Starts the React Native development server
+   - Uses Expo's tunnel mode for secure connections
+   - Enables hot reloading
+
+3. Network Configuration
+-----------------------
+- The backend server runs on all network interfaces (0.0.0.0)
+- Uses port 8001 for API access
+- Automatically updates the API URL in the frontend code
+- Supports secure tunnel connections through Expo
+- Handles network changes automatically
+
+4. Dependencies and Requirements
+------------------------------
+Required Software:
+- Python 3.11
+- Node.js and npm
+- Expo CLI
+- Homebrew (for macOS)
+
+Required Python Packages:
+- uvicorn
+- fastapi
+- Other backend dependencies (in requirements.txt)
+
+Required Node.js Packages:
+- expo-cli
+- react-native
+- Other frontend dependencies
+
+5. Setup Instructions
+--------------------
+To set up the command on a new system:
+
+1. Install Prerequisites:
+   ```bash
+   # Install Homebrew
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   
+   # Install Python 3.11
+   brew install python@3.11
+   
+   # Install Node.js
+   brew install node
+   
+   # Install Expo CLI
+   npm install -g expo-cli
+   ```
+
+2. Set Up Python Environment:
+   ```bash
+   # Create virtual environment
+   python3.11 -m venv venv
+   source venv/bin/activate
+   
+   # Install backend dependencies
+   cd niura-backend
+   pip install -r requirements.txt
+   cd ..
+   ```
+
+3. Install Node.js Dependencies:
+   ```bash
+   npm install
+   ```
+
+4. Make Script Executable:
+   ```bash
+   chmod +x wake-up.sh
+   ```
+
+5. Add Command Alias:
+   ```bash
+   echo 'alias niura="$HOME/path/to/NIURA/wake-up.sh"' >> ~/.zshrc
+   source ~/.zshrc
+   ```
+
+6. Usage
+--------
+To use the command:
+```bash
+niura wake up
+```
+
+Expected Output:
+1. ASCII art header
+2. Current IP address detection
+3. API URL update confirmation
+4. Backend server startup
+5. Metro bundler startup
+6. Connection information
+
+7. Troubleshooting
+-----------------
+Common Issues and Solutions:
+
+1. IP Detection Issues:
+   - Check network connectivity
+   - Verify ifconfig output
+   - Manually set IP if needed
+
+2. Server Start Failures:
+   - Check port availability
+   - Verify Python environment
+   - Check Node.js installation
+
+3. Connection Issues:
+   - Verify network settings
+   - Check firewall rules
+   - Ensure correct port forwarding
+
+4. Process Cleanup:
+   ```bash
+   pkill -f uvicorn
+   pkill -f "react-native start"
+   ```
+
+8. Additional Features
+---------------------
+- Automatic process cleanup
+- Error handling for IP detection
+- Graceful shutdown handling
+- Status monitoring
+- Secure tunnel connections
+- Hot reloading support
+
+9. Security Considerations
+-------------------------
+- Backend runs on local network
+- Expo tunnel provides secure connection
+- Process isolation
+- Automatic cleanup on exit
+- Error handling for network issues
+
+10. Maintenance
+--------------
+- Regular dependency updates
+- Network configuration checks
+- Process monitoring
+- Log file management
+- Error tracking
+
+Remember:
+- Keep dependencies updated
+- Monitor network changes
+- Check process status
+- Maintain security settings
+- Document any custom configurations 

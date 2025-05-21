@@ -1,29 +1,35 @@
-import SQLite from 'react-native-sqlite-storage';
+import * as SQLite from 'expo-sqlite';
 
-// Enable SQLite Promises
-SQLite.enablePromise(true);
-
-export interface BLEReading {
+interface BLEReading {
   id?: number;
-  timestamp: string;
-  stressLevel?: number;
-  attentionLevel?: number;
-  rawData: string;
-  isUploaded: boolean;
+  timestamp: Date;
+  value: number;
+  type: string;
+}
+
+interface SQLiteTransaction {
+  executeSql: (
+    sql: string,
+    args?: any[],
+    callback?: (tx: SQLiteTransaction, result: SQLiteResult) => void
+  ) => void;
+}
+
+interface SQLiteResult {
+  insertId: number;
+  rows: {
+    length: number;
+    item: (index: number) => any;
+  };
 }
 
 export class DatabaseService {
-  private database: SQLite.SQLiteDatabase | null = null;
+  private db: SQLite.SQLiteDatabase | null = null;
 
   async initDatabase(): Promise<void> {
     try {
-      this.database = await SQLite.openDatabase({
-        name: 'niura.db',
-        location: 'default',
-      });
-
+      this.db = await SQLite.openDatabaseAsync('niura.db');
       await this.createTables();
-      console.log('Database initialized successfully');
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -31,217 +37,114 @@ export class DatabaseService {
   }
 
   private async createTables(): Promise<void> {
-    if (!this.database) {
-      throw new Error('Database not initialized');
-    }
-
-    const queries = [
-      `CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
-        firstName TEXT,
-        lastName TEXT,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-      )`,
-      `CREATE TABLE IF NOT EXISTS readings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp TEXT NOT NULL,
-        stress_level REAL,
-        attention_level REAL,
-        raw_data TEXT NOT NULL,
-        is_uploaded INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )`,
-      `CREATE TABLE IF NOT EXISTS sync_queue (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        reading_id INTEGER NOT NULL,
-        retry_count INTEGER DEFAULT 0,
-        last_retry DATETIME,
-        status TEXT DEFAULT 'pending',
-        error TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (reading_id) REFERENCES readings (id) ON DELETE CASCADE
-      )`
-    ];
-
-    for (const query of queries) {
-      await this.database.executeSql(query);
-    }
-  }
-
-  async addToSyncQueue(readingId: number): Promise<void> {
-    if (!this.database) throw new Error('Database not initialized');
+    if (!this.db) throw new Error('Database not initialized');
 
     try {
-      await this.database.executeSql(
-        'INSERT INTO sync_queue (reading_id) VALUES (?)',
-        [readingId]
-      );
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS readings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          value REAL NOT NULL,
+          type TEXT NOT NULL,
+          synced INTEGER DEFAULT 0
+        )
+      `);
     } catch (error) {
-      console.error('Error adding to sync queue:', error);
-      throw error;
-    }
-  }
-
-  async getPendingSyncItems(maxRetries: number = 3): Promise<Array<{ id: number, readingId: number }>> {
-    if (!this.database) throw new Error('Database not initialized');
-
-    try {
-      const [results] = await this.database.executeSql(
-        `SELECT id, reading_id FROM sync_queue 
-         WHERE status = 'pending' 
-         AND (retry_count < ? OR retry_count IS NULL)
-         ORDER BY created_at ASC`,
-        [maxRetries]
-      );
-
-      const items = [];
-      for (let i = 0; i < results.rows.length; i++) {
-        const row = results.rows.item(i);
-        items.push({
-          id: row.id,
-          readingId: row.reading_id
-        });
-      }
-      return items;
-    } catch (error) {
-      console.error('Error getting pending sync items:', error);
-      throw error;
-    }
-  }
-
-  async updateSyncStatus(queueId: number, success: boolean, error?: string): Promise<void> {
-    if (!this.database) throw new Error('Database not initialized');
-
-    try {
-      if (success) {
-        await this.database.executeSql(
-          "UPDATE sync_queue SET status = 'completed' WHERE id = ?",
-          [queueId]
-        );
-      } else {
-        await this.database.executeSql(
-          `UPDATE sync_queue 
-           SET status = 'failed',
-               retry_count = retry_count + 1,
-               last_retry = CURRENT_TIMESTAMP,
-               error = ?
-           WHERE id = ?`,
-          [error || 'Unknown error', queueId]
-        );
-      }
-    } catch (error) {
-      console.error('Error updating sync status:', error);
+      console.error('Error creating tables:', error);
       throw error;
     }
   }
 
   async storeReading(reading: BLEReading): Promise<number> {
-    if (!this.database) throw new Error('Database not initialized');
+    if (!this.db) throw new Error('Database not initialized');
 
     try {
-      await this.database.executeSql('BEGIN TRANSACTION');
-
-      const { timestamp, stressLevel, attentionLevel, rawData, isUploaded } = reading;
-      const [result] = await this.database.executeSql(
-        `INSERT INTO readings (timestamp, stress_level, attention_level, raw_data, is_uploaded)
-         VALUES (?, ?, ?, ?, ?)`,
-        [timestamp, stressLevel, attentionLevel, rawData, isUploaded ? 1 : 0]
+      const result = await this.db.runAsync(
+        'INSERT INTO readings (value, type) VALUES (?, ?)',
+        [reading.value, reading.type]
       );
       
-      const readingId = result.insertId;
-      
-      // Add to sync queue if not already uploaded
-      if (!isUploaded) {
-        await this.addToSyncQueue(readingId);
+      if (result.lastInsertRowId === undefined) {
+        throw new Error('Failed to insert reading');
       }
-
-      await this.database.executeSql('COMMIT');
-      return readingId;
+      
+      return result.lastInsertRowId;
     } catch (error) {
-      await this.database.executeSql('ROLLBACK');
       console.error('Error storing reading:', error);
       throw error;
     }
   }
 
-  async getUnsyncedReadings(): Promise<BLEReading[]> {
-    if (!this.database) throw new Error('Database not initialized');
-
-    try {
-      const [results] = await this.database.executeSql(
-        'SELECT * FROM readings WHERE is_uploaded = 0 ORDER BY timestamp ASC'
-      );
-      
-      return this.mapResultsToReadings(results);
-    } catch (error) {
-      console.error('Error getting unsynced readings:', error);
-      throw error;
-    }
-  }
-
-  async markReadingsAsSynced(ids: number[]): Promise<void> {
-    if (!this.database) throw new Error('Database not initialized');
-
-    try {
-      const placeholders = ids.map(() => '?').join(',');
-      await this.database.executeSql(
-        `UPDATE readings SET is_uploaded = 1 WHERE id IN (${placeholders})`,
-        ids
-      );
-    } catch (error) {
-      console.error('Error marking readings as synced:', error);
-      throw error;
-    }
-  }
-
   async getReadings(startDate: Date, endDate: Date): Promise<BLEReading[]> {
-    if (!this.database) throw new Error('Database not initialized');
+    if (!this.db) throw new Error('Database not initialized');
 
     try {
-      const [results] = await this.database.executeSql(
+      const rows = await this.db.getAllAsync<{
+        id: number;
+        timestamp: string;
+        value: number;
+        type: string;
+      }>(
         'SELECT * FROM readings WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp DESC',
         [startDate.toISOString(), endDate.toISOString()]
       );
-      
-      return this.mapResultsToReadings(results);
+
+      return rows.map(row => ({
+        id: row.id,
+        timestamp: new Date(row.timestamp),
+        value: row.value,
+        type: row.type,
+      }));
     } catch (error) {
       console.error('Error getting readings:', error);
       throw error;
     }
   }
 
-  private mapResultsToReadings(results: SQLite.ResultSet): BLEReading[] {
-    const readings: BLEReading[] = [];
-    
-    for (let i = 0; i < results.rows.length; i++) {
-      const row = results.rows.item(i);
-      readings.push({
-        id: row.id,
-        timestamp: row.timestamp,
-        stressLevel: row.stress_level,
-        attentionLevel: row.attention_level,
-        rawData: row.raw_data,
-        isUploaded: Boolean(row.is_uploaded)
-      });
-    }
-    
-    return readings;
-  }
-
   async cleanOldData(daysToKeep: number = 30): Promise<void> {
-    if (!this.database) throw new Error('Database not initialized');
-
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+    if (!this.db) throw new Error('Database not initialized');
 
     try {
-      await this.database.executeSql(
-        'DELETE FROM readings WHERE timestamp < ? AND is_uploaded = 1',
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+
+      await this.db.runAsync(
+        'DELETE FROM readings WHERE timestamp < ?',
         [cutoffDate.toISOString()]
       );
     } catch (error) {
       console.error('Error cleaning old data:', error);
+      throw error;
+    }
+  }
+
+  // New method for syncing with backend
+  async syncWithBackend(): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      // Get all unsynced readings
+      const unsynced = await this.db.getAllAsync<{
+        id: number;
+        timestamp: string;
+        value: number;
+        type: string;
+      }>('SELECT * FROM readings WHERE synced = 0');
+
+      // TODO: Implement your backend sync logic here
+      // const syncedIds = await yourBackendService.syncReadings(unsynced);
+
+      // Mark readings as synced
+      await this.db.withTransactionAsync(async () => {
+        for (const reading of unsynced) {
+          await this.db!.runAsync(
+            'UPDATE readings SET synced = 1 WHERE id = ?',
+            [reading.id]
+          );
+        }
+      });
+    } catch (error) {
+      console.error('Error syncing with backend:', error);
       throw error;
     }
   }

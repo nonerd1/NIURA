@@ -1,0 +1,67 @@
+Network Configuration Instructions for Ryan's Laptop Server
+
+Context:
+- The FastAPI backend server needs to be accessible to:
+  1. Ishaan's phone (for initial testing)
+  2. Ryan's phone (for final deployment)
+- Both phones will be connecting to the same ESP32 device via BLE
+- The server needs to handle data from both devices
+
+Required Network Setup:
+
+1. Server Configuration:
+   - Run the FastAPI server on all network interfaces (0.0.0.0)
+   - Use a consistent port (e.g., 8000)
+   - Enable CORS to allow connections from both phones
+   - Set up proper error handling for network issues
+
+2. Network Access:
+   - Ensure the server is accessible on the local network
+   - Document the laptop's local IP address
+   - Test connectivity from both phones
+   - Set up proper firewall rules if needed
+
+3. CORS Configuration:
+   - Allow requests from both phone's IP addresses
+   - Configure CORS middleware in FastAPI
+   - Allow necessary HTTP methods (GET, POST, etc.)
+   - Set appropriate headers for mobile access
+
+4. Testing Steps:
+   - Test server accessibility from Ishaan's phone first
+   - Verify data flow from phone to server
+   - Test with Ryan's phone when available
+   - Document any network issues or solutions
+
+5. Security Considerations:
+   - Keep the server on the local network for now
+   - Document any security measures implemented
+   - Note any credentials or access tokens needed
+   - Plan for future security enhancements
+
+Important Notes:
+- The server must be running when either phone is using the app
+- Both phones will connect to the same ESP32 device
+- Data from both phones should be properly separated in the database
+- Network configuration should be documented for future reference
+
+Start by:
+1. Checking the laptop's network configuration
+2. Setting up the server with proper CORS
+3. Testing connectivity from Ishaan's phone
+4. Documenting the setup for Ryan's phone
+
+Remember:
+- Keep track of IP addresses and ports used
+- Document any network-specific configurations
+- Test connectivity regularly
+- Plan for future network changes or deployments
+
+The goal is to have a server that:
+1. Is accessible to both phones
+2. Handles data from both devices properly
+3. Maintains data separation between users
+4. Provides reliable connectivity
+5. Can be easily configured for future changes
+
+Begin by checking the current network setup and proceed with the configuration steps. 

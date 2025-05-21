@@ -1,214 +1,157 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text } from 'react-native';
-import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
-import MetricsGraph from '../components/MetricsGraph';
-import { colors } from '../theme/colors';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { databaseService } from '../services/database';
 
-const Tab = createMaterialTopTabNavigator();
+interface MetricsData {
+  date: string;
+  stressLevel: number;
+  attentionLevel: number;
+}
 
-type MetricsData = {
-  data: number[];
-  labels: string[];
-};
+interface DailyMetrics extends MetricsData {
+  count: number;
+}
 
-// Mock data generator - Replace this with real data from your backend
-const generateMockData = (hours: number) => {
-  const data: number[] = [];
-  const labels: string[] = [];
-  const now = new Date();
-  
-  for (let i = hours; i >= 0; i--) {
-    const time = new Date(now.getTime() - (i * 60 * 60 * 1000));
-    const value = Number((Math.random() * 2 + 0.5).toFixed(1));
-    data.push(value);
-    // Format time with AM/PM indicator
-    const hour = time.getHours();
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const hour12 = hour % 12 || 12;
-    labels.push(`${hour12}${ampm}`);
+const MetricsScreen: React.FC = () => {
+  const [metrics, setMetrics] = useState<MetricsData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadMetrics();
+  }, []);
+
+  const loadMetrics = async () => {
+    try {
+      setError(null);
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7); // Last 7 days
+
+      const readings = await databaseService.getReadings(startDate, endDate);
+      
+      // Group readings by date and calculate averages
+      const dailyMetrics = readings.reduce((acc: { [key: string]: DailyMetrics }, reading) => {
+        if (!reading.timestamp) return acc;
+        
+        const date = new Date(reading.timestamp).toISOString().split('T')[0];
+        if (!acc[date]) {
+          acc[date] = {
+            date,
+            stressLevel: 0,
+            attentionLevel: 0,
+            count: 0
+          };
+        }
+        
+        const value = Number(reading.value) || 0;
+        if (reading.type === 'stress') {
+          acc[date].stressLevel += value;
+        } else if (reading.type === 'attention') {
+          acc[date].attentionLevel += value;
+        }
+        acc[date].count++;
+        
+        return acc;
+      }, {});
+
+      // Calculate averages and format data
+      const formattedMetrics = Object.values(dailyMetrics)
+        .map(metric => ({
+          date: metric.date,
+          stressLevel: metric.count > 0 ? metric.stressLevel / metric.count : 0,
+          attentionLevel: metric.count > 0 ? metric.attentionLevel / metric.count : 0
+        }))
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      setMetrics(formattedMetrics);
+    } catch (error) {
+      console.error('Error loading metrics:', error);
+      setError('Failed to load metrics. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#4a90e2" />
+      </View>
+    );
   }
-  
-  return { data, labels };
-};
 
-const FocusTab = () => {
-  const [focusData, setFocusData] = useState<MetricsData>({ data: [], labels: [] });
-
-  useEffect(() => {
-    const updateData = () => {
-      const { data, labels } = generateMockData(6);
-      setFocusData({ data, labels });
-    };
-
-    updateData();
-    const interval = setInterval(updateData, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Calculate level based on current value
-  const currentValue = focusData.data[focusData.data.length - 1] || 0;
-  const level = currentValue <= 1 ? 'Low' : currentValue <= 2 ? 'Medium' : 'High';
-
-  // Get current time for "Last updated"
-  const now = new Date();
-  const lastUpdated = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`;
-
-  return (
-    <View style={styles.tabContainer}>
-      <Text style={styles.title}>Focus Level</Text>
-      <Text style={styles.subtitle}>Past 6 Hours</Text>
-      <MetricsGraph
-        labels={focusData.labels}
-        datasets={[{
-          data: focusData.data,
-          color: colors.primary.main,
-          label: 'Focus'
-        }]}
-        type="focus"
-        lastUpdated={lastUpdated}
-        status={{
-          level,
-          value: currentValue
-        }}
-      />
-      <View style={styles.statsContainer}>
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>
-            {focusData.data.length > 0 ? Math.max(...focusData.data).toFixed(1) : '0.0'}
-          </Text>
-          <Text style={styles.statLabel}>Peak Focus</Text>
-        </View>
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>
-            {focusData.data.length > 0 
-              ? (focusData.data.reduce((a, b) => a + b, 0) / focusData.data.length).toFixed(1)
-              : '0.0'}
-          </Text>
-          <Text style={styles.statLabel}>Average Focus</Text>
-        </View>
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>{error}</Text>
       </View>
-    </View>
-  );
-};
+    );
+  }
 
-const StressTab = () => {
-  const [stressData, setStressData] = useState<MetricsData>({ data: [], labels: [] });
-
-  useEffect(() => {
-    const updateData = () => {
-      const { data, labels } = generateMockData(6);
-      setStressData({ data, labels });
-    };
-
-    updateData();
-    const interval = setInterval(updateData, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Calculate level based on current value
-  const currentValue = stressData.data[stressData.data.length - 1] || 0;
-  const level = currentValue <= 1 ? 'Low' : currentValue <= 2 ? 'Medium' : 'High';
-
-  // Get current time for "Last updated"
-  const now = new Date();
-  const lastUpdated = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`;
-
-  return (
-    <View style={styles.tabContainer}>
-      <Text style={styles.title}>Stress Level</Text>
-      <Text style={styles.subtitle}>Past 6 Hours</Text>
-      <MetricsGraph
-        labels={stressData.labels}
-        datasets={[{
-          data: stressData.data,
-          color: colors.error,
-          label: 'Stress'
-        }]}
-        type="stress"
-        lastUpdated={lastUpdated}
-        status={{
-          level,
-          value: currentValue
-        }}
-      />
-      <View style={styles.statsContainer}>
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>
-            {stressData.data.length > 0 ? Math.max(...stressData.data).toFixed(1) : '0.0'}
-          </Text>
-          <Text style={styles.statLabel}>Peak Stress</Text>
-        </View>
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>
-            {stressData.data.length > 0 
-              ? (stressData.data.reduce((a, b) => a + b, 0) / stressData.data.length).toFixed(1)
-              : '0.0'}
-          </Text>
-          <Text style={styles.statLabel}>Average Stress</Text>
-        </View>
+  if (metrics.length === 0) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.emptyText}>No metrics data available</Text>
       </View>
-    </View>
-  );
-};
+    );
+  }
 
-const MetricsScreen = () => {
   return (
-    <Tab.Navigator
-      screenOptions={{
-        tabBarStyle: styles.tabBar,
-        tabBarIndicatorStyle: {
-          backgroundColor: colors.primary.main,
-        },
-        tabBarActiveTintColor: colors.primary.main,
-        tabBarInactiveTintColor: colors.text.secondary,
-      }}
-    >
-      <Tab.Screen name="Focus" component={FocusTab} />
-      <Tab.Screen name="Stress" component={StressTab} />
-    </Tab.Navigator>
+    <View style={styles.container}>
+      {metrics.map((metric, index) => (
+        <View key={metric.date} style={styles.metricItem}>
+          <Text style={styles.date}>{new Date(metric.date).toLocaleDateString()}</Text>
+          <Text style={styles.metricText}>
+            Stress Level: {metric.stressLevel.toFixed(2)}
+          </Text>
+          <Text style={styles.metricText}>
+            Attention Level: {metric.attentionLevel.toFixed(2)}
+          </Text>
+        </View>
+      ))}
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  tabContainer: {
+  container: {
     flex: 1,
     padding: 16,
-    backgroundColor: colors.background.dark,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
   },
-  tabBar: {
-    backgroundColor: colors.background.dark,
-    elevation: 0,
-    shadowOpacity: 0,
-    borderBottomWidth: 0,
+  metricItem: {
+    padding: 16,
+    marginBottom: 8,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
   },
-  title: {
-    fontSize: 24,
+  date: {
+    fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 8,
-    color: colors.text.primary,
+    color: '#333',
   },
-  subtitle: {
-    fontSize: 16,
-    color: colors.text.secondary,
-    marginBottom: 16,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 24,
-  },
-  stat: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: colors.primary.main,
-  },
-  statLabel: {
+  metricText: {
     fontSize: 14,
-    color: colors.text.secondary,
-    marginTop: 4,
+    color: '#666',
+    marginBottom: 4,
+  },
+  errorText: {
+    color: '#ff3b30',
+    textAlign: 'center',
+    fontSize: 16,
+  },
+  emptyText: {
+    color: '#666',
+    textAlign: 'center',
+    fontSize: 16,
   },
 });
 

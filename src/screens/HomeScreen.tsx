@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, SafeAreaView, TouchableOpacity, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -10,15 +10,22 @@ import SpeedometerMetrics from '../components/SpeedometerMetrics';
 import { colors } from '../theme/colors';
 import { AnimatedCircularProgress } from 'react-native-circular-progress';
 import { useDemo } from '../context/DemoContext';
-import { NativeEventEmitter, NativeModules, Platform, PermissionsAndroid } from 'react-native';
+import { NativeEventEmitter, NativeModules, PermissionsAndroid } from 'react-native';
 import { useBLE } from '../context/BLEContext';
 import { logDebug } from '../utils/logger';
+import { databaseService } from '../services/database';
 
 type Tab = 'focus' | 'stress' | 'mental';
 
 type MetricsData = {
   data: number[];
   labels: string[];
+};
+
+type MetricDataPoint = {
+  timestamp: Date;
+  value: number;
+  type: 'attention' | 'stress';
 };
 
 // Add type for navigation params
@@ -521,863 +528,422 @@ const HomeScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [focusData, setFocusData] = useState<MetricsData>({ data: [], labels: [] });
   const [stressData, setStressData] = useState<MetricsData>({ data: [], labels: [] });
-  const [focusValue, setFocusValue] = useState(1.5);
-  const [stressValue, setStressValue] = useState(1.5);
-  const [isEarbudsConnected, setIsEarbudsConnected] = useState(false);
   const [mentalReadiness, setMentalReadiness] = useState<number>(75);
   const { demoMode, focusValue: demoFocusValue, stressValue: demoStressValue } = useDemo();
   
-  // Add BLE context
   const { 
     isScanning, 
     isConnected, 
     connectToDevice, 
     disconnectFromDevice, 
     focusValue: bleFocusValue, 
-    stressValue: bleStressValue,
-    error: bleError,
+    stressValue: bleStressValue, 
+    error: bleError, 
     lastUpdated: bleLastUpdated
   } = useBLE();
   
-  // Comment out BLE-related state
-  // const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
-  // const [bleError, setBleError] = useState<string | null>(null);
+  const [todayMetrics, setTodayMetrics] = useState<MetricDataPoint[]>([]);
   const isOnSimulator = isSimulator();
 
-  // Add todayMetrics state
-  interface MetricDataPoint {
-    timestamp: Date;
-    focus: number;
-    stress: number;
-  }
-  
-  const [todayMetrics, setTodayMetrics] = useState<MetricDataPoint[]>([]);
-  
   useEffect(() => {
-    if (!demoMode) {
-      // Comment out BLE initialization for now so QR code will work
-      /*
-      const initializeBLE = async () => {
-        try {
-          // If on simulator, set a special error message or skip BLE initialization
-          if (isOnSimulator) {
-            // Only set this for development, so the simulator experience is cleaner
-            if (__DEV__) {
-              setBleError('BluetoothLE is unsupported on this device');
-            }
-            return;
-          }
-
-          // Request permissions first
-          await requestPermissions();
-
-          // Start scanning for ESP32
-          bleManager.startDeviceScan(
-            [SERVICE_UUID], 
-            { allowDuplicates: false },
-            (error: BleError | null, device: Device | null) => {
-              if (error) {
-                console.error('Scanning error:', error);
-                setBleError(error.message);
-                return;
-              }
-
-              if (device?.name === ESP32_NAME) {
-                handleDiscoverDevice(device);
-              }
-            }
-          );
-
-        } catch (error: any) {
-          console.error('BLE initialization error:', error);
-          setBleError('Failed to initialize Bluetooth');
-        }
-      };
-
-      initializeBLE();
-
-      // Cleanup function
-      return () => {
-        if (!isOnSimulator) {
-          bleManager.stopDeviceScan();
-          if (connectedDevice) {
-            bleManager.cancelDeviceConnection(connectedDevice.id);
-          }
-        }
-      };
-      */
+    if (!demoMode && !isOnSimulator) {
+      connectToDevice();
     }
   }, [demoMode, isOnSimulator]);
 
-  // Comment out the device handling function
-  /*
-  // Handle device discovery and connection
-  const handleDiscoverDevice = async (device: Device) => {
-    // ...device connection code...
-  };
-  */
-
-  // Restore the useEffect for data updates in demo mode
   useEffect(() => {
-    // Skip mock data generation when in demo mode
-    if (demoMode) return;
-
-    // Your existing demo mode data generation code
-    const updateHistoricalData = () => {
-      const focus = generateMockData(6);
-      const stress = generateMockData(6);
-      setFocusData(focus);
-      setStressData(stress);
-      setFocusValue(focus.data[focus.data.length - 1]);
-      setStressValue(stress.data[stress.data.length - 1]);
-    };
-
-    updateHistoricalData();
-    const historicalInterval = setInterval(updateHistoricalData, 60000);
-
-    return () => {
-      clearInterval(historicalInterval);
-    };
-  }, [demoMode]); // Add demoMode as a dependency
-
-  // New effect to update metrics from demo values when in demo mode
-  useEffect(() => {
-    // Only update values when demo mode is active
-    if (demoMode) {
-      // Set the focus and stress values to match demo values
-      setFocusValue(demoFocusValue);
-      setStressValue(demoStressValue);
-      
-      // Update historical data to match demo trend
-      // Generate 6 points of data that lead up to the current values
+    const currentValue = demoMode ? demoFocusValue : bleFocusValue;
+    if (currentValue !== undefined) {
+      const newData = [...focusData.data, currentValue];
       const now = new Date();
-      const labels = Array.from({ length: 6 }, (_, i) => {
-        const d = new Date();
-        d.setHours(now.getHours() - (5 - i));
-        return `${d.getHours()}:00`;
-      });
+      const newLabel = `${now.getHours()}:${now.getMinutes()}`;
+      const newLabels = [...focusData.labels, newLabel];
       
-      // Generate focus data trending toward current demo value
-      const focusDataPoints = Array.from({ length: 6 }, (_, i) => {
-        // Start from a middle value and trend toward demo value
-        const baseValue = 1.5;
-        // Last point is the current demo value
-        if (i === 5) return demoFocusValue;
-        // Other points gradually move toward the demo value
-        return baseValue + ((demoFocusValue - baseValue) * (i / 5));
-      });
+      // Keep only last 10 data points
+      if (newData.length > 10) {
+        newData.shift();
+        newLabels.shift();
+      }
       
-      // Generate stress data trending toward current demo value
-      const stressDataPoints = Array.from({ length: 6 }, (_, i) => {
-        // Start from a middle value and trend toward demo value
-        const baseValue = 1.5;
-        // Last point is the current demo value
-        if (i === 5) return demoStressValue;
-        // Other points gradually move toward the demo value
-        return baseValue + ((demoStressValue - baseValue) * (i / 5));
-      });
-      
-      // Update state with new trend data
-      setFocusData({ data: focusDataPoints, labels });
-      setStressData({ data: stressDataPoints, labels });
+      setFocusData({ data: newData, labels: newLabels });
     }
-  }, [demoMode, demoFocusValue, demoStressValue]);
+  }, [demoMode ? demoFocusValue : bleFocusValue]);
 
-  // Update focus and stress values based on BLE data
   useEffect(() => {
-    if (isConnected && bleFocusValue !== undefined && bleStressValue !== undefined) {
-      logDebug('Updating values from BLE', { focus: bleFocusValue, stress: bleStressValue });
-      setFocusValue(bleFocusValue);
-      setStressValue(bleStressValue);
+    const currentValue = demoMode ? demoStressValue : bleStressValue;
+    if (currentValue !== undefined) {
+      const newData = [...stressData.data, currentValue];
+      const now = new Date();
+      const newLabel = `${now.getHours()}:${now.getMinutes()}`;
+      const newLabels = [...stressData.labels, newLabel];
       
-      // Update history with new values
-      const newDataPoint: MetricDataPoint = {
-        timestamp: new Date(),
-        focus: bleFocusValue,
-        stress: bleStressValue
-      };
+      // Keep only last 10 data points
+      if (newData.length > 10) {
+        newData.shift();
+        newLabels.shift();
+      }
       
-      setTodayMetrics(prev => {
-        const newMetrics = [...prev.slice(-5), newDataPoint];
-        return newMetrics;
-      });
-      
-      // Calculate mental readiness based on focus and stress
-      const readiness = calculateMentalReadiness(bleFocusValue, bleStressValue);
-      setMentalReadiness(readiness);
+      setStressData({ data: newData, labels: newLabels });
     }
-  }, [isConnected, bleFocusValue, bleStressValue]);
+  }, [demoMode ? demoStressValue : bleStressValue]);
 
-  // Calculate mental readiness based on focus and stress values
-  const calculateMentalReadiness = (focus: number, stress: number) => {
-    // Higher focus and lower stress = better mental readiness
-    const focusContribution = (focus / 3) * 60; // 60% weight to focus
-    const stressContribution = ((3 - stress) / 3) * 40; // 40% weight to inverted stress
-    return Math.round(focusContribution + stressContribution);
-  };
+  useEffect(() => {
+    const storeMetrics = async () => {
+      if (!demoMode && (bleFocusValue !== undefined || bleStressValue !== undefined)) {
+        try {
+          if (bleFocusValue !== undefined) {
+            await databaseService.storeReading({
+              timestamp: new Date(),
+              value: bleFocusValue,
+              type: 'attention'
+            });
+          }
+          
+          if (bleStressValue !== undefined) {
+            await databaseService.storeReading({
+              timestamp: new Date(),
+              value: bleStressValue,
+              type: 'stress'
+            });
+          }
+        } catch (error) {
+          console.error('Error storing metrics:', error);
+        }
+      }
+    };
 
-  // Render BLE controls
-  const renderBLEControls = () => {
-    return (
-      <View style={styles.bleControls}>
-        {bleError ? (
-          <Text style={styles.errorText}>{bleError}</Text>
-        ) : null}
-        
-        {!isConnected ? (
-          <Pressable 
-            style={[styles.bleButton, isScanning && styles.bleButtonDisabled]}
-            onPress={connectToDevice}
-            disabled={isScanning}
-          >
-            <MaterialCommunityIcons 
-              name={isScanning ? "bluetooth" : "bluetooth-off"} 
-              size={24} 
-              color="#fff" 
-            />
-            <Text style={styles.bleButtonText}>
-              {isScanning ? 'Scanning...' : 'Connect ESP32'}
-            </Text>
-          </Pressable>
-        ) : (
-          <Pressable 
-            style={styles.bleButton}
-            onPress={disconnectFromDevice}
-          >
-            <MaterialCommunityIcons name="bluetooth" size={24} color="#fff" />
-            <Text style={styles.bleButtonText}>Disconnect</Text>
-          </Pressable>
-        )}
-        
-        {bleLastUpdated && (
-          <Text style={styles.lastUpdatedText}>
-            Last updated: {bleLastUpdated.toLocaleTimeString()}
-          </Text>
-        )}
-      </View>
-    );
-  };
+    storeMetrics();
+  }, [demoMode, bleFocusValue, bleStressValue]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <LinearGradient 
-        colors={colors.background.gradient}
-        style={styles.container}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        locations={[0, 1]}
-      >
-        {/* Comment out BLE error display
-        {bleError && (!isOnSimulator || bleError !== 'BluetoothLE is unsupported on this device') && (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Welcome Back</Text>
+          <Text style={styles.subtitle}>Ready for your next session?</Text>
+        </View>
+
+        {bleError && (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{bleError}</Text>
           </View>
         )}
-        */}
-        
-        {/* Remove simulator mode banner */}
-        {/* isOnSimulator && (
-          <View style={[styles.infoContainer, { backgroundColor: 'rgba(44, 62, 80, 0.7)' }]}>
-            <Text style={styles.infoText}>Using simulator mode - Bluetooth features disabled</Text>
+
+        <View style={styles.metricsContainer}>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Focus Score</Text>
+            <Text style={styles.metricValue}>{demoFocusValue ?? bleFocusValue ?? '-'}</Text>
           </View>
-        ) */}
-        
-        {/* Rest of your UI */}
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          <Header />
-          <View style={styles.content}>
-            <MetricsHeader 
-              focusValue={focusValue}
-              stressValue={stressValue}
-              mentalReadinessScore={mentalReadiness}
-              onMetricsPress={() => navigation.navigate('DetailedMetrics', {
-                focusData: focusData.data,
-                stressData: stressData.data,
-                labels: focusData.labels,
-                lastUpdated: new Date().toLocaleTimeString(),
-                focusLevel: focusValue <= 1 ? 'Low' : focusValue <= 2 ? 'Medium' : 'High',
-                focusValue: focusValue,
-                stressLevel: stressValue <= 1 ? 'Low' : stressValue <= 2 ? 'Medium' : 'High',
-                stressValue: stressValue,
-                focusColor: colors.primary.main,
-                stressColor: colors.error,
-                mentalReadinessScore: mentalReadiness,
-                mentalReadinessLevel: mentalReadiness <= 33 ? 'Low' : mentalReadiness <= 66 ? 'Medium' : 'Good',
-                correlationData: {
-                  highFocusHighStress: 25,
-                  highFocusLowStress: 45,
-                  lowFocusHighStress: 10,
-                  lowFocusLowStress: 20
-                },
-                recommendations: [
-                  'Your focus peaks when stress is low. Consider taking breaks between 2-3 PM.',
-                  'Deep breathing exercises can help reduce stress and improve focus.',
-                  'Consider a 20-minute walk to reset your mental state.'
-                ]
-              })}
-            />
-            
-            {/* Real-time Speedometers */}
-            <View style={styles.speedometersContainer}>
-              <Text style={styles.sectionTitle}>Real-Time Metrics</Text>
-              <SpeedometerMetrics
-                focusValue={focusValue}
-                stressValue={stressValue}
-              />
-            </View>
-
-            {/* Add BLE controls right after the speedometers */}
-            {renderBLEControls()}
-
-            {/* Graph */}
-            <View style={styles.graphContainer}>
-              <Text style={styles.graphTitle}>Today's Metrics</Text>
-              <MetricsGraph
-                labels={focusData.labels}
-                datasets={[
-                  {
-                    data: focusData.data,
-                    color: colors.primary.main,
-                    label: 'Focus'
-                  },
-                  {
-                    data: stressData.data,
-                    color: colors.error,
-                    label: 'Stress'
-                  }
-                ]}
-                lastUpdated={new Date().toLocaleTimeString()}
-                status={{
-                  level: focusValue <= 1 ? 'Low' : focusValue <= 2 ? 'Medium' : 'High',
-                  value: focusValue
-                }}
-                type="focus"
-              />
-            </View>
-
-            {/* Best Focus Time */}
-            <BestFocusTime />
-
-            {/* Mood Music */}
-            <MoodMusic />
-            <Tasks />
-            <MentalReadinessHistory />
-
-            {/* After the "Mental State Metrics" container, add the theme button */}
-            <View style={[styles.themeCardContainer, { marginTop: 30 }]}>
-              <Pressable 
-                style={styles.card} 
-                onPress={() => navigation.navigate('UIKit')}
-              >
-                <View style={styles.themeCardRow}>
-                  <View style={styles.themeIconWrapper}>
-                    <Ionicons name="color-palette" size={24} color={colors.primary.main} />
-                  </View>
-                  <View style={styles.themeTextWrapper}>
-                    <Text style={styles.themeTitle}>Theme Explorer</Text>
-                    <Text style={styles.themeDescription}>
-                      View the updated UI components
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
-                </View>
-              </Pressable>
-            </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Session Time</Text>
+            <Text style={styles.metricValue}>{demoStressValue ?? bleStressValue ?? '-'}</Text>
           </View>
-        </ScrollView>
-      </LinearGradient>
+        </View>
+
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={isConnected ? disconnectFromDevice : connectToDevice}
+        >
+          <Text style={styles.buttonText}>
+            {isConnected ? 'Disconnect' : 'Connect to Device'}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  // Base styles
   safeArea: {
     flex: 1,
     backgroundColor: colors.background.dark,
   },
   container: {
     flex: 1,
+    padding: 20,
   },
-  scrollView: {
-    flex: 1,
+  header: {
+    marginBottom: 30,
   },
-  content: {
-    paddingHorizontal: 20,
-    paddingBottom: 100,
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: colors.text.primary,
+    marginBottom: 8,
   },
-
-  // Header styles
-  headerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
-  },
-  headerContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headphonesButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.background.card,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  headerSubtitle: {
+  subtitle: {
     fontSize: 16,
     color: colors.text.secondary,
   },
-  profileButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.background.card,
-  },
-
-  // Metrics styles
-  metricsHeader: {
+  errorContainer: {
+    backgroundColor: colors.error,
+    padding: 12,
+    borderRadius: 8,
     marginBottom: 20,
+  },
+  errorText: {
+    color: colors.text.primary,
+    fontSize: 14,
   },
   metricsContainer: {
-    backgroundColor: colors.background.card,
-    borderRadius: 16,
-    padding: 12,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  metricsCardContainer: {
-    width: '100%',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  metricsLayout: {
     flexDirection: 'row',
-    width: '100%',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    marginBottom: 30,
   },
-  metricColumn: {
-    width: '25%',
-    alignItems: 'center',
+  metricCard: {
+    flex: 1,
+    backgroundColor: colors.background.card,
+    padding: 16,
+    borderRadius: 12,
+    marginHorizontal: 8,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  centerMetricColumn: {
-    width: '50%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  metricsCircleContainer: {
-    marginBottom: 8,
-  },
-  mentalReadinessCircleContainer: {
+  metricLabel: {
+    fontSize: 14,
+    color: colors.text.secondary,
     marginBottom: 8,
   },
   metricValue: {
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 2,
-  },
-  metricLabel: {
-    fontSize: 10,
-    color: '#7a889e',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  mentalReadinessScore: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#ffffff',
-  },
-  mentalReadinessLabel: {
-    fontSize: 12,
-    color: '#7a889e',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-  },
-
-  // Graph styles
-  graphContainer: {
-    marginTop: 30,
-    backgroundColor: colors.background.card,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  graphTitle: {
-    fontSize: 18,
-    fontWeight: '600',
     color: colors.text.primary,
-    marginBottom: 16,
   },
-
+  actionButton: {
+    backgroundColor: colors.primary.main,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 30,
+  },
+  buttonText: {
+    color: colors.text.primary,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   // Best Focus Time styles
   bestFocusContainer: {
-    marginTop: 30,
     backgroundColor: colors.background.card,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
   },
   bestFocusHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   bestFocusTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 'bold',
     color: colors.text.primary,
-    marginLeft: 12,
+    marginLeft: 8,
   },
   bestFocusContent: {
     alignItems: 'center',
   },
   timeChip: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 24,
-    marginBottom: 16,
+    padding: 8,
+    borderRadius: 20,
+    marginBottom: 8,
   },
   timeText: {
     color: colors.text.primary,
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   bestFocusDescription: {
-    fontSize: 15,
     color: colors.text.secondary,
+    fontSize: 14,
     textAlign: 'center',
-    lineHeight: 22,
   },
-
   // Mood Music styles
   moodMusicContainer: {
-    marginTop: 30,
     backgroundColor: colors.background.card,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
   },
   moodMusicHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   moodMusicTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 'bold',
     color: colors.text.primary,
-    marginLeft: 12,
+    marginLeft: 8,
   },
   moodMusicContent: {
-    width: '100%',
+    alignItems: 'center',
   },
   musicCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 20,
-    borderRadius: 16,
+    padding: 12,
+    borderRadius: 8,
+    width: '100%',
   },
   musicInfo: {
     flex: 1,
-    marginRight: 20,
   },
   musicType: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 'bold',
     color: colors.text.primary,
-    marginBottom: 6,
   },
   musicDescription: {
-    fontSize: 15,
-    color: colors.text.primary,
-    opacity: 0.8,
-    lineHeight: 22,
+    fontSize: 14,
+    color: colors.text.secondary,
   },
-
   // Tasks styles
   tasksContainer: {
-    marginTop: 30,
     backgroundColor: colors.background.card,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    padding: 16,
   },
   tasksHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   tasksTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 'bold',
     color: colors.text.primary,
-    marginLeft: 12,
+    marginLeft: 8,
   },
   tasksContent: {
-    gap: 20,
+    gap: 12,
   },
   taskItem: {
-    gap: 10,
+    backgroundColor: colors.background.dark,
+    borderRadius: 8,
+    padding: 12,
   },
   taskHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    marginBottom: 8,
   },
   taskTitle: {
-    fontSize: 15,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: 'bold',
     color: colors.text.primary,
   },
   taskProgress: {
-    fontSize: 13,
+    fontSize: 14,
     color: colors.text.secondary,
   },
   progressBarBackground: {
-    height: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 4,
-    overflow: 'hidden',
+    height: 4,
+    backgroundColor: colors.background.dark,
+    borderRadius: 2,
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 4,
+    borderRadius: 2,
   },
-
-  // Card styles
+  // Mental Readiness styles
   card: {
-    marginTop: 30,
     backgroundColor: colors.background.card,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
   },
   cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 'bold',
     color: colors.text.primary,
-    marginLeft: 12,
+    marginLeft: 8,
   },
-
-  // Insight styles
+  // Metrics styles
+  metricsCardContainer: {
+    backgroundColor: colors.background.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  metricsLayout: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  metricColumn: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  metricsCircleContainer: {
+    marginBottom: 8,
+  },
+  centerMetricColumn: {
+    alignItems: 'center',
+    flex: 1.5,
+  },
+  mentalReadinessCircleContainer: {
+    marginBottom: 8,
+  },
+  mentalReadinessScore: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.text.primary,
+  },
+  mentalReadinessLabel: {
+    fontSize: 12,
+    color: colors.text.secondary,
+    textAlign: 'center',
+  },
+  // Header styles
+  headerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headphonesButton: {
+    padding: 8,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: colors.text.secondary,
+    marginLeft: 8,
+  },
+  profileButton: {
+    padding: 8,
+  },
+  // Metrics Header styles
+  metricsHeader: {
+    marginBottom: 20,
+  },
   insightContainer: {
-    marginTop: 16,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.background.card,
-    borderRadius: 16,
-    padding: 16,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
   },
   insightText: {
     flex: 1,
-    marginLeft: 10,
-    color: colors.text.primary,
     fontSize: 14,
-    lineHeight: 20,
-  },
-
-  // Legend styles
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  legendText: {
-    fontSize: 13,
-    color: colors.text.secondary,
-  },
-  legendValue: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
-  speedometersContainer: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
     color: colors.text.primary,
-    marginBottom: 16,
-    paddingHorizontal: 16,
-  },
-
-  // Demo mode styles
-  demoModeIndicator: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'red',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 15,
-    zIndex: 999,
-  },
-  demoModeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-
-  // Error styles
-  errorContainer: {
-    backgroundColor: colors.error,
-    padding: 12,
-    borderRadius: 8,
-    marginHorizontal: 16,
-    marginTop: 8,
-  },
-  errorText: {
-    color: 'white',
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  infoContainer: {
-    backgroundColor: 'rgba(44, 62, 80, 0.7)',
-    padding: 10,
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 8,
-    opacity: 0.9,
-  },
-  infoText: {
-    color: 'white',
-    textAlign: 'center',
-    fontSize: 13,
-  },
-
-  // New styles for the theme button
-  themeCardContainer: {
-    marginTop: 30,
-    backgroundColor: colors.background.card,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  themeCardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  themeIconWrapper: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.background.card,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  themeTextWrapper: {
-    flex: 1,
-  },
-  themeTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text.primary,
-    marginBottom: 6,
-  },
-  themeDescription: {
-    fontSize: 15,
-    color: colors.text.secondary,
-  },
-
-  // New styles for the BLE controls
-  bleControls: {
-    marginTop: 16,
-    alignItems: 'center',
-  },
-  bleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#4a90e2',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  bleButtonDisabled: {
-    opacity: 0.6,
-  },
-  bleButtonText: {
-    color: '#fff',
     marginLeft: 8,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  lastUpdatedText: {
-    color: '#666',
-    fontSize: 12,
   },
 });
 
