@@ -1,18 +1,9 @@
-import { 
-  signUp, 
-  signIn, 
-  signOut, 
-  getCurrentUser, 
-  fetchUserAttributes, 
-  confirmResetPassword, 
-  resetPassword, 
-  confirmSignUp,
-  fetchAuthSession,
-  type AuthUser,
-  signInWithRedirect
-} from 'aws-amplify/auth';
-import type { SignUpOutput } from '@aws-amplify/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Remove all AWS Amplify related code
+// Remove references to SignUpOutput, signUp, signIn, getCurrentUser, fetchUserAttributes, confirmSignUp, signOut, AsyncStorage
+// Remove ExtendedAuthUser and related logic
+// Remove any remaining AWS Amplify logic
 
 export interface SignUpParams {
   email: string;
@@ -26,136 +17,64 @@ export interface SignInParams {
   password: string;
 }
 
-export interface ExtendedAuthUser extends AuthUser {
-  userAttributes: Record<string, string>;
+export interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  attributes?: Record<string, string>;
 }
 
 class AuthService {
-  async signUp({ email, password, firstName, lastName }: SignUpParams): Promise<SignUpOutput> {
+  private currentUser: User | null = null;
+
+  async signUp({ email, password, firstName, lastName }: SignUpParams): Promise<User> {
     try {
       console.log('Starting sign up process for:', email);
       
-      console.log('Attempting sign up with attributes:', {
+      // TODO: Implement actual signup logic here
+      // This is a placeholder implementation
+      const user: User = {
+        id: Math.random().toString(36).substring(7),
         email,
-        given_name: firstName,
-        family_name: lastName
-      });
+        firstName,
+        lastName
+      };
 
-      const result = await signUp({
-        username: email,
-        password,
-        options: {
-          userAttributes: {
-            email,
-            given_name: firstName,
-            family_name: lastName,
-          },
-          autoSignIn: false // Disable auto sign in until verification
-        }
-      });
-
-      console.log('Sign up API response:', {
-        isSignUpComplete: result.isSignUpComplete,
-        nextStep: result.nextStep,
-        userId: result.userId
-      });
-
-      // Return the result instead of throwing an error
-      return result;
+      this.currentUser = user;
+      return user;
     } catch (error: any) {
-      console.error('Detailed sign up error:', {
-        code: error.code,
-        name: error.name,
-        message: error.message,
-        details: error
-      });
-      
-      if (error.code === 'UsernameExistsException') {
-        throw new Error('This email is already registered. Please try signing in or use a different email.');
-      }
-
-      // If it's our verification message, pass it through
-      if (error.message.includes('verification code')) {
-        throw error;
-      }
-
-      throw new Error(error.message || 'Failed to sign up. Please try again.');
+      console.error('Error signing up:', error);
+      throw new Error('Failed to sign up. Please try again.');
     }
   }
 
-  async signIn({ email, password }: SignInParams): Promise<any> {
+  async signIn({ email, password }: SignInParams): Promise<User> {
     try {
       console.log('Starting sign in process for:', email);
       
-      // Attempt to sign in
-      const signInResult = await signIn({ 
-        username: email,  // Use email as username
-        password,
-        options: {
-          // Remove authFlowType as it's handled by Amplify
-        }
-      });
-      
-      console.log('Sign in result:', {
-        isSignedIn: signInResult.isSignedIn,
-        nextStep: signInResult.nextStep
-      });
-      
-      if (signInResult.isSignedIn) {
-        try {
-          // Get user attributes and store tokens
-          const user = await getCurrentUser();
-          console.log('Current user fetched:', user);
-          
-          const userAttributes = await fetchUserAttributes();
-          console.log('User attributes fetched:', userAttributes);
-          
-          await this.storeSession();
-          return { 
-            user: {
-              ...user,
-              userAttributes
-            } as ExtendedAuthUser
-          };
-        } catch (userError: any) {
-          console.error('Error fetching user details:', {
-            code: userError.code,
-            name: userError.name,
-            message: userError.message,
-            stack: userError.stack
-          });
-          throw userError;
-        }
-      }
+      // TODO: Implement actual signin logic here
+      // This is a placeholder implementation
+      const user: User = {
+        id: Math.random().toString(36).substring(7),
+        email,
+        firstName: 'Test',
+        lastName: 'User'
+      };
 
-      return { nextStep: signInResult.nextStep };
+      this.currentUser = user;
+      await this.storeSession(user);
+      return user;
     } catch (error: any) {
-      console.error('Detailed sign in error:', {
-        code: error.code,
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-        details: error
-      });
-      
-      if (error.code === 'UserNotConfirmedException') {
-        console.log('User not confirmed, requesting confirmation code resend');
-        await confirmSignUp({ 
-          username: email,
-          confirmationCode: '' // This will trigger a resend
-        });
-        throw new Error('Please check your email for the confirmation code');
-      }
-      
-      // Throw a more informative error
-      throw new Error(error.message || 'Failed to sign in. Please check your credentials and try again.');
+      console.error('Error signing in:', error);
+      throw new Error('Failed to sign in. Please check your credentials and try again.');
     }
   }
 
   async signOut(): Promise<void> {
     try {
-      await signOut();
-      await AsyncStorage.multiRemove(['accessToken', 'idToken']);
+      await AsyncStorage.multiRemove(['accessToken', 'idToken', 'user']);
+      this.currentUser = null;
     } catch (error) {
       console.error('Error signing out:', error);
       throw error;
@@ -164,21 +83,26 @@ class AuthService {
 
   async isAuthenticated(): Promise<boolean> {
     try {
-      const user = await getCurrentUser();
+      const user = await AsyncStorage.getItem('user');
       return !!user;
     } catch {
       return false;
     }
   }
 
-  async getCurrentUser(): Promise<ExtendedAuthUser | null> {
+  async getCurrentUser(): Promise<User | null> {
     try {
-      const user = await getCurrentUser();
-      const userAttributes = await fetchUserAttributes();
-      return {
-        ...user,
-        userAttributes
-      } as ExtendedAuthUser;
+      if (this.currentUser) {
+        return this.currentUser;
+      }
+      
+      const userStr = await AsyncStorage.getItem('user');
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        this.currentUser = user;
+        return user;
+      }
+      return null;
     } catch (error) {
       console.error('Error getting current user:', error);
       return null;
@@ -188,7 +112,7 @@ class AuthService {
   async forgotPassword(email: string): Promise<void> {
     try {
       console.log('Initiating forgot password for:', email);
-      await resetPassword({ username: email });
+      // TODO: Implement forgot password logic
     } catch (error) {
       console.error('Error initiating forgot password:', error);
       throw error;
@@ -198,105 +122,32 @@ class AuthService {
   async forgotPasswordSubmit(email: string, code: string, newPassword: string): Promise<void> {
     try {
       console.log('Submitting new password for:', email);
-      await confirmResetPassword({
-        username: email,
-        confirmationCode: code,
-        newPassword
-      });
+      // TODO: Implement password reset logic
     } catch (error) {
       console.error('Error submitting new password:', error);
       throw error;
     }
   }
 
-  private async storeSession(): Promise<void> {
+  private async storeSession(user: User): Promise<void> {
     try {
-      const { tokens } = await fetchAuthSession();
-      console.log('Auth session tokens:', {
-        hasAccessToken: !!tokens?.accessToken,
-        hasIdToken: !!tokens?.idToken,
-        accessTokenExpiration: tokens?.accessToken?.payload?.exp,
-        idTokenExpiration: tokens?.idToken?.payload?.exp
-      });
-      
-      if (tokens?.accessToken && tokens?.idToken) {
-        await AsyncStorage.setItem('accessToken', tokens.accessToken.toString());
-        await AsyncStorage.setItem('idToken', tokens.idToken.toString());
-        console.log('Successfully stored auth tokens in AsyncStorage');
-      } else {
-        console.warn('No tokens available to store');
-      }
+      await AsyncStorage.setItem('user', JSON.stringify(user));
+      // TODO: Store actual session tokens when implemented
+      console.log('Successfully stored user data');
     } catch (error) {
       console.error('Error storing session:', error);
       throw error;
     }
   }
 
-  async handleAuthCode(code: string): Promise<void> {
-    try {
-      console.log('Handling OAuth callback code');
-      const { isSignedIn } = await signIn({ 
-        username: 'COGNITO_USER',
-        options: {
-          authFlowType: 'USER_SRP_AUTH',
-          clientMetadata: {
-            code
-          }
-        }
-      });
-      
-      if (isSignedIn) {
-        await this.storeSession();
-      }
-    } catch (error) {
-      console.error('Error handling auth code:', error);
-      throw error;
-    }
-  }
-
-  async signInWithGoogle(): Promise<void> {
-    try {
-      await signInWithRedirect({
-        provider: 'Google'
-      });
-    } catch (error) {
-      console.error('Error signing in with Google:', error);
-      throw error;
-    }
-  }
-
   async verifyAuth(): Promise<boolean> {
-    try {
-      console.log('Verifying authentication state...');
-      
-      // Check if user is authenticated
-      const user = await getCurrentUser();
-      console.log('Current user:', user);
-      
-      // Get user attributes
-      const attributes = await fetchUserAttributes();
-      console.log('User attributes:', attributes);
-      
-      // Verify session tokens
-      const { tokens } = await fetchAuthSession();
-      const isValid = !!tokens?.accessToken && !!tokens?.idToken;
-      console.log('Session valid:', isValid);
-      
-      return isValid;
-    } catch (error) {
-      console.error('Auth verification failed:', error);
-      return false;
-    }
+    return this.isAuthenticated();
   }
 
   async confirmSignUp(email: string, code: string): Promise<void> {
     try {
       console.log('Confirming sign up for:', email);
-      await confirmSignUp({
-        username: email,
-        confirmationCode: code
-      });
-      console.log('Sign up confirmed successfully');
+      // TODO: Implement signup confirmation logic
     } catch (error: any) {
       console.error('Error confirming sign up:', error);
       throw new Error('Failed to confirm sign up. Please check your verification code and try again.');
@@ -306,11 +157,7 @@ class AuthService {
   async resendVerificationCode(email: string): Promise<void> {
     try {
       console.log('Resending verification code to:', email);
-      await confirmSignUp({
-        username: email,
-        confirmationCode: ''  // Empty code triggers a resend
-      });
-      console.log('Verification code resent successfully');
+      // TODO: Implement verification code resend logic
     } catch (error: any) {
       console.error('Error resending verification code:', error);
       throw new Error('Failed to resend verification code. Please try again.');

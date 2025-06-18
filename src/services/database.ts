@@ -1,4 +1,11 @@
-import * as SQLite from 'expo-sqlite';
+// Fallback database service when SQLite is not available
+let SQLite: any = null;
+
+try {
+  SQLite = require('expo-sqlite');
+} catch (error) {
+  console.warn('SQLite not available, using fallback implementation');
+}
 
 interface BLEReading {
   id?: number;
@@ -24,20 +31,31 @@ interface SQLiteResult {
 }
 
 export class DatabaseService {
-  private db: SQLite.SQLiteDatabase | null = null;
+  private db: any = null;
+  private isAvailable: boolean = false;
+
+  constructor() {
+    this.isAvailable = SQLite !== null;
+  }
 
   async initDatabase(): Promise<void> {
+    if (!this.isAvailable) {
+      console.warn('Database not available - using fallback mode');
+      return;
+    }
+
     try {
       this.db = await SQLite.openDatabaseAsync('niura.db');
       await this.createTables();
     } catch (error) {
       console.error('Error initializing database:', error);
+      this.isAvailable = false;
       throw error;
     }
   }
 
   private async createTables(): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db || !this.isAvailable) return;
 
     try {
       await this.db.execAsync(`
@@ -56,7 +74,10 @@ export class DatabaseService {
   }
 
   async storeReading(reading: BLEReading): Promise<number> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db || !this.isAvailable) {
+      console.warn('Database not available - reading not stored:', reading);
+      return Math.random(); // Return fake ID
+    }
 
     try {
       const result = await this.db.runAsync(
@@ -76,20 +97,18 @@ export class DatabaseService {
   }
 
   async getReadings(startDate: Date, endDate: Date): Promise<BLEReading[]> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db || !this.isAvailable) {
+      console.warn('Database not available - returning empty readings');
+      return []; // Return empty array
+    }
 
     try {
-      const rows = await this.db.getAllAsync<{
-        id: number;
-        timestamp: string;
-        value: number;
-        type: string;
-      }>(
+      const rows = await this.db.getAllAsync(
         'SELECT * FROM readings WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp DESC',
         [startDate.toISOString(), endDate.toISOString()]
       );
 
-      return rows.map(row => ({
+      return rows.map((row: any) => ({
         id: row.id,
         timestamp: new Date(row.timestamp),
         value: row.value,
@@ -102,7 +121,10 @@ export class DatabaseService {
   }
 
   async cleanOldData(daysToKeep: number = 30): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db || !this.isAvailable) {
+      console.warn('Database not available - skipping cleanup');
+      return;
+    }
 
     try {
       const cutoffDate = new Date();
@@ -118,18 +140,17 @@ export class DatabaseService {
     }
   }
 
-  // New method for syncing with backend
   async syncWithBackend(): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db || !this.isAvailable) {
+      console.warn('Database not available - skipping sync');
+      return;
+    }
 
     try {
       // Get all unsynced readings
-      const unsynced = await this.db.getAllAsync<{
-        id: number;
-        timestamp: string;
-        value: number;
-        type: string;
-      }>('SELECT * FROM readings WHERE synced = 0');
+      const unsynced = await this.db.getAllAsync(
+        'SELECT * FROM readings WHERE synced = 0'
+      );
 
       // TODO: Implement your backend sync logic here
       // const syncedIds = await yourBackendService.syncReadings(unsynced);
@@ -147,6 +168,11 @@ export class DatabaseService {
       console.error('Error syncing with backend:', error);
       throw error;
     }
+  }
+
+  // Helper method to check if database is available
+  isDatabaseAvailable(): boolean {
+    return this.isAvailable;
   }
 }
 

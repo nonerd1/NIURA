@@ -1,0 +1,20 @@
+#ifndef NIURA_Prefix_pch
+#define NIURA_Prefix_pch
+
+#ifdef __OBJC__
+#import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
+#endif
+
+// Essential React Native imports
+#import "React/RCTBridge.h"
+#import "React/RCTBundleURLProvider.h"
+#import "React/RCTRootView.h"
+#import "React/RCTLinkingManager.h"
+
+// Development-only imports
+#if RCT_DEV
+#import <React/RCTDevLoadingView.h>
+#endif
+
+#endif /* NIURA_Prefix_pch */ 

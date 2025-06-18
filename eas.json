@@ -13,8 +13,19 @@
       },
       "ios": {
         "resourceClass": "m-medium",
-        "credentialsSource": "local",
-        "simulator": false
+        "simulator": true
+      }
+    },
+    "device": {
+      "developmentClient": true,
+      "channel": "development", 
+      "env": {
+        "APP_ENV": "development"
+      },
+      "ios": {
+        "resourceClass": "m-medium",
+        "simulator": false,
+        "buildConfiguration": "Debug"
       }
     },
     "preview": {
@@ -38,19 +49,7 @@
       "ios": {
         "appleId": "REPLACE_WITH_APPLE_ID",
         "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID",
-        "appleTeamId": "REPLACE_WITH_APPLE_TEAM_ID",
-        "companyName": "NIURA",
-        "language": "en-US",
-        "sku": "io.niura.app",
-        "testflight": {
-          "enableAutoSubmit": true,
-          "betaGroups": ["External Testers"],
-          "licenseAgreement": "By using this app, you agree to the terms of service.",
-          "firstName": "NIURA",
-          "lastName": "Team",
-          "username": "REPLACE_WITH_APPLE_ID",
-          "notifyBetaTesters": true
-        }
+        "appleTeamId": "REPLACE_WITH_APPLE_TEAM_ID"
       }
     }
   }

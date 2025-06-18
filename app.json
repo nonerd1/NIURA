@@ -7,7 +7,8 @@
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "main": "index.js",
+    "newArchEnabled": false,
     "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/d2b21124-89a2-432c-badc-b1ebddaf268f",
@@ -18,7 +19,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "io.niura.app",
       "buildNumber": "1",
-      "minimumOSVersion": "15.1",
+      "deploymentTarget": "15.1",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -30,9 +31,14 @@
         },
         "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to connect to NIURA devices",
         "NSBluetoothPeripheralUsageDescription": "This app uses Bluetooth to connect to NIURA devices",
-        "UIBackgroundModes": ["bluetooth-central", "bluetooth-peripheral"]
+        "UIBackgroundModes": [
+          "bluetooth-central",
+          "bluetooth-peripheral"
+        ]
       },
-      "associatedDomains": ["applinks:niura.app"],
+      "associatedDomains": [
+        "applinks:niura.app"
+      ],
       "config": {
         "usesNonExemptEncryption": false
       }
@@ -65,7 +71,10 @@
               "host": "signout"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -83,17 +92,7 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      [
-        "react-native-ble-plx",
-        {
-          "isBackgroundEnabled": true,
-          "modes": [
-            "peripheral",
-            "central"
-          ],
-          "bluetoothAlwaysPermission": "Allow $(PRODUCT_NAME) to connect to bluetooth devices"
-        }
-      ]
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

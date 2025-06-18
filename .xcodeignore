@@ -1,0 +1,65 @@
+# Exclude from Xcode indexing to speed up performance
+node_modules/
+.git/
+.expo/
+dist/
+build/
+.next/
+coverage/
+__tests__/
+*.log
+yarn.lock
+package-lock.json
+.DS_Store
+*.tmp
+*.temp
+
+# iOS specific exclusions for faster indexing
+ios/Pods/
+ios/build/
+ios/DerivedData/
+Pods/
+*.xcworkspace/xcshareddata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# React Native and Metro
+.metro/
+metro-cache/
+.cache/
+tmp/
+
+# Exclude ALL large dependency sources aggressively
+ios/Pods/boost/
+ios/Pods/RCT-Folly/
+ios/Pods/hermes-engine/
+ios/Pods/glog/
+ios/Pods/fmt/
+ios/Pods/DoubleConversion/
+ios/Pods/React-Core/
+ios/Pods/React-*/
+ios/Pods/Expo*/
+ios/Pods/RN*/
+ios/Pods/*/node_modules/
+ios/Pods/*/build/
+ios/Pods/*/Sources/
+ios/Pods/*/src/
+
+# Exclude backup and additional directories
+backup/
+venv/
+android/
+scripts/
+assets/
+components/
+constants/
+hooks/
+app/
+src/
+
+# Exclude all third-party source code
+*.framework/
+*.a
+*.bundle
+*.xcassets/ 

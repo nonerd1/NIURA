@@ -4,12 +4,12 @@ require File.join(File.dirname(`node --print "require.resolve('react-native/pack
 require 'json'
 podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
 
-# Core configuration
-ENV['RCT_NEW_ARCH_ENABLED'] = '1'
+# Core configuration for development build
+ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 ENV['USE_HERMES'] = '1'
 ENV['USE_FABRIC'] = '0'
-ENV['RCT_VERBOSE_LOGGING'] = '1'
-ENV['CI'] = '1'
+ENV['RCT_VERBOSE_LOGGING'] = '0'
+ENV['CI'] = '0'
 
 # Build optimizations
 ENV['RCT_ENABLE_FAST_REFRESH'] = '1'
@@ -18,12 +18,19 @@ ENV['CC'] = 'clang'
 ENV['CXX'] = 'clang++'
 
 platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
-install! 'cocoapods',
-  :deterministic_uuids => false
+install! 'cocoapods', :deterministic_uuids => false
 
 prepare_react_native_project!
 
+linkage = ENV['USE_FRAMEWORKS']
+if linkage != nil
+  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+  use_frameworks! :linkage => linkage.to_sym
+end
+
 target 'NIURA' do
+  config = use_native_modules!
+
   use_expo_modules!
   post_integrate do |installer|
     begin
@@ -32,55 +39,55 @@ target 'NIURA' do
       Pod::UI.warn e
     end
   end
-  config = use_native_modules!
-
-  use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
-  use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
-
-  flags = get_default_flags()
 
   use_react_native!(
     :path => config[:reactNativePath],
-    :hermes_enabled => true,
-    :fabric_enabled => false,
+    :hermes_enabled => podfile_properties['expo.jsEngine'] == nil || podfile_properties['expo.jsEngine'] == 'hermes',
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
   post_install do |installer|
+    # Fix Swift version and deployment targets
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        # Set minimum deployment target
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
+        
+        # Fix Swift version for all Swift-related targets
+        if target.name.include?('Swift') || target.name.include?('SQLite') || target.name == 'ExpoSQLite'
+          config.build_settings['SWIFT_VERSION'] = '5.0'
+          config.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
+          config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+        end
+        
+        # Fix typeof keyword issues
+        if target.name.start_with?('React')
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= []
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'typeof=__typeof__'
+        end
+        
+        # Enable development symbols for React Core and all dev modules
+        if target.name == 'React-Core' || target.name.include?('expo-dev') || target.name == 'React-CoreModules'
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= []
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_DEV=1'
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_DEBUG=1'
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_DEV_MENU=1'
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_ENABLE_INSPECTOR=1'
+        end
+        
+        # Disable problematic Hermes debugging in React Native Reanimated
+        if target.name == 'RNReanimated'
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= []
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'REANIMATED_DISABLE_HERMES_INSPECTOR=1'
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_DEV=1'
+        end
+      end
+    end
+
     react_native_post_install(
       installer,
       config[:reactNativePath],
       :mac_catalyst_enabled => false
     )
-
-    installer.pods_project.targets.each do |target|
-      target.build_configurations.each do |config|
-        # Build optimizations
-        config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '2'
-        config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-O'
-        config.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
-        config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
-        config.build_settings['ENABLE_BITCODE'] = 'NO'
-        
-        # Increase build parallelism
-        config.build_settings['SWIFT_THREADS'] = '4'
-        
-        if target.name == "ReactCodegen"
-          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.4'
-          # Make script phases non-failing but keep output
-          target.build_phases.each do |phase|
-            if phase.respond_to?(:name) && phase.name.include?("Script")
-              phase.shell_script = "set -x\n#{phase.shell_script}\ntrue"
-            end
-          end
-        end
-
-        # Fix SQLite source path
-        if target.name == "ExpoSQLite"
-          config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(PODS_ROOT)/../node_modules/expo-sqlite/ios']
-          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)', 'SQLITE_HAS_CODEC=1']
-        end
-      end
-    end
   end
 end
