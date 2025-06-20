@@ -15,6 +15,7 @@ import { NativeEventEmitter, NativeModules, PermissionsAndroid } from 'react-nat
 import { useBLE } from '../context/BLEContext';
 import { logDebug } from '../utils/logger';
 import { databaseService } from '../services/database';
+import { eegService, Goal, Recommendation, MusicSuggestion, FocusTimeData } from '../services/eegService';
 
 type Tab = 'focus' | 'stress' | 'mental';
 
@@ -180,12 +181,32 @@ const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
   stressValue: number
 }) => {
   const navigation = useNavigation<NavigationProp>();
+  const [aggregateData, setAggregateData] = useState<any>(null);
+  const [isLoadingAggregate, setIsLoadingAggregate] = useState(true);
+  
   const now = new Date();
   const hours = now.getHours();
   const minutes = now.getMinutes();
   const ampm = hours >= 12 ? 'PM' : 'AM';
   const displayHours = hours % 12 || 12; // Convert to 12-hour format
   const lastUpdated = `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+
+  useEffect(() => {
+    loadTodaysData();
+  }, []);
+
+  const loadTodaysData = async () => {
+    try {
+      const data = await eegService.getEEGAggregate('hourly');
+      const formattedData = eegService.formatAggregateForChart(data);
+      setAggregateData(formattedData);
+    } catch (error) {
+      console.error('Error loading aggregate data:', error);
+      // Keep using fallback data generation on error
+    } finally {
+      setIsLoadingAggregate(false);
+    }
+  };
   
   const getFocusLevel = (value: number) => {
     if (value >= 2.5) return 'HIGH';
@@ -193,7 +214,7 @@ const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
     return 'LOW';
   };
 
-  // Generate today's hourly data for the chart
+  // Generate today's hourly data for the chart (fallback if no backend data)
   const generateTodaysData = () => {
     const hours = [];
     const focusData = [];
@@ -221,14 +242,17 @@ const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
     return { labels: hours, focusData, stressData };
   };
 
-  const todaysData = generateTodaysData();
+  // Use backend data if available, otherwise use generated data
+  const chartData = aggregateData || generateTodaysData();
 
   return (
     <View style={styles.todaysMetricsContainer}>
       <Text style={styles.todaysMetricsTitle}>Today's Metrics</Text>
       
       <View style={styles.chartHeader}>
-        <Text style={styles.lastUpdated}>Last updated {lastUpdated}</Text>
+        <Text style={styles.lastUpdated}>
+          {isLoadingAggregate ? 'Loading...' : `Last updated ${lastUpdated}`}
+        </Text>
         <View style={styles.currentValueContainer}>
           <Text style={[styles.currentLevel, { color: '#4287f5' }]}>
             {getFocusLevel(focusValue)} {focusValue.toFixed(1)}
@@ -238,15 +262,15 @@ const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
 
       <View style={styles.chartContainer}>
         <MetricsGraph
-          labels={todaysData.labels}
+          labels={chartData.labels}
           datasets={[
             {
-              data: todaysData.focusData,
+              data: chartData.focusData,
               color: '#4287f5',
               label: 'Focus',
             },
             {
-              data: todaysData.stressData,
+              data: chartData.stressData,
               color: '#FFA500',
               label: 'Stress',
             },
@@ -256,9 +280,9 @@ const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
           onPress={() => {
             try {
               navigation.navigate('DetailedMetrics', {
-                focusData: todaysData.focusData,
-                stressData: todaysData.stressData,
-                labels: todaysData.labels,
+                focusData: chartData.focusData,
+                stressData: chartData.stressData,
+                labels: chartData.labels,
                 lastUpdated: lastUpdated,
                 focusLevel: getFocusLevel(focusValue),
                 focusValue: focusValue,
@@ -286,11 +310,44 @@ const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
           }}
         />
       </View>
+      
+      {aggregateData && (
+        <Text style={styles.dataSourceIndicator}>
+          Showing real data ({aggregateData.totalSamples} samples)
+        </Text>
+      )}
     </View>
   );
 };
 
 const BestFocusTime = () => {
+  const [focusTimeData, setFocusTimeData] = useState<FocusTimeData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadBestFocusTime();
+  }, []);
+
+  const loadBestFocusTime = async () => {
+    try {
+      const data = await eegService.getBestFocusTime();
+      setFocusTimeData(data);
+    } catch (error) {
+      console.error('Error loading best focus time:', error);
+      // Keep default data on error
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const displayTimeRange = focusTimeData 
+    ? eegService.formatTimeRange(focusTimeData.best_time_start, focusTimeData.best_time_end)
+    : '10:00 AM - 12:00 PM';
+
+  const displayDescription = focusTimeData
+    ? `Based on your focus patterns, you're most productive during these hours (${focusTimeData.focus_score}% focus score)`
+    : "Based on your focus patterns, you're most productive during these hours";
+
   return (
     <View style={styles.bestFocusContainer}>
       <View style={styles.bestFocusHeader}>
@@ -304,17 +361,46 @@ const BestFocusTime = () => {
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
         >
-          <Text style={styles.timeText}>10:00 AM - 12:00 PM</Text>
+          <Text style={styles.timeText}>{displayTimeRange}</Text>
         </LinearGradient>
         <Text style={styles.bestFocusDescription}>
-          Based on your focus patterns, you're most productive during these hours
+          {displayDescription}
         </Text>
+        {focusTimeData && (
+          <Text style={styles.confidenceText}>
+            Confidence: {focusTimeData.confidence}%
+          </Text>
+        )}
       </View>
     </View>
   );
 };
 
 const MoodMusic = () => {
+  const [musicSuggestions, setMusicSuggestions] = useState<MusicSuggestion[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadMusicSuggestions();
+  }, []);
+
+  const loadMusicSuggestions = async () => {
+    try {
+      const suggestions = await eegService.getMusicSuggestion();
+      setMusicSuggestions(suggestions);
+    } catch (error) {
+      console.error('Error loading music suggestions:', error);
+      // Keep default data on error
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const displaySuggestion = musicSuggestions.length > 0 ? musicSuggestions[0] : null;
+
+  const defaultTitle = "Focus Beats";
+  const defaultDescription = "Lo-fi beats to help you concentrate";
+
   return (
     <View style={styles.moodMusicContainer}>
       <View style={styles.moodMusicHeader}>
@@ -329,8 +415,17 @@ const MoodMusic = () => {
           end={{ x: 1, y: 0 }}
         >
           <View style={styles.musicInfo}>
-            <Text style={styles.musicType}>Focus Beats</Text>
-            <Text style={styles.musicDescription}>Lo-fi beats to help you concentrate</Text>
+            <Text style={styles.musicType}>
+              {displaySuggestion?.title || defaultTitle}
+            </Text>
+            <Text style={styles.musicDescription}>
+              {displaySuggestion?.artist || displaySuggestion?.genre || defaultDescription}
+            </Text>
+            {displaySuggestion?.recommended_for && (
+              <Text style={styles.musicMood}>
+                For {displaySuggestion.recommended_for}
+              </Text>
+            )}
           </View>
           <Ionicons name="play-circle" size={36} color={colors.text.primary} />
         </LinearGradient>
@@ -340,6 +435,61 @@ const MoodMusic = () => {
 };
 
 const Tasks = () => {
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadCurrentGoals();
+  }, []);
+
+  const loadCurrentGoals = async () => {
+    try {
+      const currentGoals = await eegService.getCurrentGoals();
+      setGoals(currentGoals);
+    } catch (error) {
+      console.error('Error loading current goals:', error);
+      // Keep default data on error
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const renderGoal = (goal: Goal, index: number) => {
+    const progress = eegService.getGoalProgress(goal);
+    
+    return (
+      <View key={goal.id || index} style={styles.taskItem}>
+        <View style={styles.taskHeader}>
+          <Text style={styles.taskTitle}>{goal.title}</Text>
+          <Text style={styles.taskProgress}>
+            {goal.current_value || 0}/{goal.target_value || 100}
+            {goal.target_value ? '' : '%'}
+          </Text>
+        </View>
+        <View style={styles.progressBarBackground}>
+          <LinearGradient
+            colors={[colors.primary.main, colors.primary.light]}
+            style={[styles.progressBarFill, { width: `${progress}%` }]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          />
+        </View>
+        {goal.description && (
+          <Text style={styles.goalDescription}>{goal.description}</Text>
+        )}
+      </View>
+    );
+  };
+
+  // Default goals if no backend data
+  const defaultGoals = [
+    { id: 1, title: "Daily Meditation", current_value: 15, target_value: 20 },
+    { id: 2, title: "Focus Session", current_value: 45, target_value: 90 },
+    { id: 3, title: "Stress Management", current_value: 2, target_value: 3 },
+  ];
+
+  const displayGoals = goals.length > 0 ? goals.slice(0, 3) : defaultGoals;
+
   return (
     <View style={styles.tasksContainer}>
       <View style={styles.tasksHeader}>
@@ -347,53 +497,7 @@ const Tasks = () => {
         <Text style={styles.tasksTitle}>Current Goals</Text>
       </View>
       <View style={styles.tasksContent}>
-        {/* Task 1 */}
-        <View style={styles.taskItem}>
-          <View style={styles.taskHeader}>
-            <Text style={styles.taskTitle}>Daily Meditation</Text>
-            <Text style={styles.taskProgress}>15/20 min</Text>
-          </View>
-          <View style={styles.progressBarBackground}>
-            <LinearGradient
-              colors={[colors.primary.main, colors.primary.light]}
-              style={[styles.progressBarFill, { width: '75%' }]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            />
-          </View>
-        </View>
-
-        {/* Task 2 */}
-        <View style={styles.taskItem}>
-          <View style={styles.taskHeader}>
-            <Text style={styles.taskTitle}>Focus Session</Text>
-            <Text style={styles.taskProgress}>45/90 min</Text>
-          </View>
-          <View style={styles.progressBarBackground}>
-            <LinearGradient
-              colors={[colors.primary.main, colors.primary.light]}
-              style={[styles.progressBarFill, { width: '50%' }]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            />
-          </View>
-        </View>
-
-        {/* Task 3 */}
-        <View style={styles.taskItem}>
-          <View style={styles.taskHeader}>
-            <Text style={styles.taskTitle}>Stress Management</Text>
-            <Text style={styles.taskProgress}>2/3 exercises</Text>
-          </View>
-          <View style={styles.progressBarBackground}>
-            <LinearGradient
-              colors={[colors.primary.main, colors.primary.light]}
-              style={[styles.progressBarFill, { width: '66%' }]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            />
-          </View>
-        </View>
+        {displayGoals.map((goal, index) => renderGoal(goal, index))}
       </View>
     </View>
   );
@@ -479,10 +583,30 @@ const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore }: {
   stressValue: number, 
   mentalReadinessScore: number
 }) => {
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+
+  useEffect(() => {
+    loadRecommendations();
+  }, []);
+
+  const loadRecommendations = async () => {
+    try {
+      const recs = await eegService.getRecommendations();
+      setRecommendations(recs);
+    } catch (error) {
+      console.error('Error loading recommendations:', error);
+    }
+  };
+
   // Safe value conversion with fallbacks
   const safeFocusValue = isNaN(focusValue) ? 1.5 : Math.max(0, Math.min(3, focusValue));
   const safeStressValue = isNaN(stressValue) ? 1.5 : Math.max(0, Math.min(3, stressValue));
   const safeMentalReadiness = isNaN(mentalReadinessScore) ? 75 : Math.max(0, Math.min(100, mentalReadinessScore));
+
+  // Get the first high-priority recommendation or use default
+  const primaryRecommendation = recommendations.find(rec => rec.priority === 'high') || recommendations[0];
+  const defaultInsight = "Your focus peaks when stress is low. Consider taking breaks between 2-3 PM.";
+  const insightText = primaryRecommendation?.description || defaultInsight;
 
   return (
     <View style={styles.metricsCardContainer}>
@@ -553,7 +677,7 @@ const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore }: {
       <View style={styles.insightContainer}>
         <Ionicons name="bulb-outline" size={20} color="#3B82F6" />
         <Text style={styles.insightText}>
-          Your focus peaks when stress is low. Consider taking breaks between 2-3 PM.
+          {insightText}
         </Text>
       </View>
     </View>
@@ -639,6 +763,7 @@ const HomeScreen = () => {
   const [focusData, setFocusData] = useState<MetricsData>({ data: [], labels: [] });
   const [stressData, setStressData] = useState<MetricsData>({ data: [], labels: [] });
   const [mentalReadiness, setMentalReadiness] = useState<number>(75);
+  const [fallbackEEGData, setFallbackEEGData] = useState<any>(null);
   const { demoMode, focusValue: demoFocusValue, stressValue: demoStressValue } = useDemo();
   
   const { 
@@ -655,9 +780,67 @@ const HomeScreen = () => {
   const [todayMetrics, setTodayMetrics] = useState<MetricDataPoint[]>([]);
   const isOnSimulator = isSimulator();
 
-  // Use either demo or BLE values with safe fallbacks
-  const currentFocusValue = demoMode ? (demoFocusValue ?? 1.5) : (bleFocusValue ?? 1.5);
-  const currentStressValue = demoMode ? (demoStressValue ?? 1.5) : (bleStressValue ?? 1.5);
+  // Load fallback data on component mount
+  useEffect(() => {
+    loadFallbackEEGData();
+  }, []);
+
+  const loadFallbackEEGData = async () => {
+    try {
+      const fallbackData = await eegService.getEEGDataWithFallback();
+      setFallbackEEGData(fallbackData);
+      console.log('Loaded fallback EEG data:', fallbackData);
+    } catch (error) {
+      console.error('Error loading fallback EEG data:', error);
+    }
+  };
+
+  // Determine which values to use with smart fallback logic
+  const getDisplayValues = () => {
+    // Priority 1: Demo mode values
+    if (demoMode && (demoFocusValue !== undefined && demoStressValue !== undefined)) {
+      return {
+        focusValue: demoFocusValue,
+        stressValue: demoStressValue,
+        source: 'demo',
+        isLive: true
+      };
+    }
+
+    // Priority 2: Live BLE values
+    if (!demoMode && (bleFocusValue !== undefined && bleStressValue !== undefined)) {
+      return {
+        focusValue: bleFocusValue,
+        stressValue: bleStressValue,
+        source: 'earbuds',
+        isLive: true
+      };
+    }
+
+    // Priority 3: Latest backend data
+    if (fallbackEEGData && fallbackEEGData.source === 'backend') {
+      return {
+        focusValue: fallbackEEGData.focusValue,
+        stressValue: fallbackEEGData.stressValue,
+        source: 'backend',
+        isLive: false,
+        timeAgo: fallbackEEGData.timeAgo,
+        isRecent: fallbackEEGData.isRecent
+      };
+    }
+
+    // Priority 4: Default fallback values
+    return {
+      focusValue: 1.5,
+      stressValue: 1.5,
+      source: 'default',
+      isLive: false
+    };
+  };
+
+  const displayValues = getDisplayValues();
+  const currentFocusValue = displayValues.focusValue;
+  const currentStressValue = displayValues.stressValue;
 
   useEffect(() => {
     if (!demoMode && !isOnSimulator) {
@@ -742,6 +925,43 @@ const HomeScreen = () => {
     storeMetrics();
   }, [demoMode, bleFocusValue, bleStressValue]);
 
+  // Add data source indicator component
+  const DataSourceIndicator = () => {
+    if (!displayValues.source || displayValues.source === 'default') return null;
+
+    const getIndicatorText = () => {
+      switch (displayValues.source) {
+        case 'demo':
+          return '🎮 Demo Mode';
+        case 'earbuds':
+          return '🎧 Live from Earbuds';
+        case 'backend':
+          return `📊 Last Session ${displayValues.timeAgo}`;
+        default:
+          return '';
+      }
+    };
+
+    const getIndicatorColor = () => {
+      switch (displayValues.source) {
+        case 'demo':
+          return '#FF6B6B';
+        case 'earbuds':
+          return '#4CAF50';
+        case 'backend':
+          return displayValues.isRecent ? '#FF9500' : '#7a889e';
+        default:
+          return '#7a889e';
+      }
+    };
+
+    return (
+      <View style={[styles.dataSourceBadge, { backgroundColor: getIndicatorColor() }]}>
+        <Text style={styles.dataSourceText}>{getIndicatorText()}</Text>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <ScrollView 
@@ -750,6 +970,8 @@ const HomeScreen = () => {
         contentContainerStyle={styles.scrollContent}
       >
         <Header />
+
+        <DataSourceIndicator />
 
         {bleError && (
           <View style={styles.errorContainer}>
@@ -904,6 +1126,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
+  confidenceText: {
+    color: colors.text.secondary,
+    fontSize: 12,
+    marginTop: 8,
+  },
   // Mood Music styles
   moodMusicContainer: {
     backgroundColor: colors.background.card,
@@ -943,6 +1170,10 @@ const styles = StyleSheet.create({
   },
   musicDescription: {
     fontSize: 14,
+    color: colors.text.secondary,
+  },
+  musicMood: {
+    fontSize: 12,
     color: colors.text.secondary,
   },
   // Tasks styles
@@ -993,6 +1224,11 @@ const styles = StyleSheet.create({
   progressBarFill: {
     height: '100%',
     borderRadius: 2,
+  },
+  goalDescription: {
+    fontSize: 12,
+    color: colors.text.secondary,
+    marginTop: 4,
   },
   // Mental Readiness styles
   card: {
@@ -1144,6 +1380,24 @@ const styles = StyleSheet.create({
   },
   chartContainer: {
     marginBottom: 12,
+  },
+  dataSourceIndicator: {
+    fontSize: 12,
+    color: colors.text.secondary,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  dataSourceBadge: {
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginBottom: 16,
+  },
+  dataSourceText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
 

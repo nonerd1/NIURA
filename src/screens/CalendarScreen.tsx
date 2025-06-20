@@ -8,24 +8,19 @@ import {
   Modal,
   TextInput,
   FlatList,
-  SafeAreaView
+  SafeAreaView,
+  Alert,
+  ActivityIndicator,
+  RefreshControl
 } from 'react-native';
 import { Calendar, CalendarProps, DateData } from 'react-native-calendars';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart, ProgressChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
+import { useEvents } from '../hooks/useEvents';
+import { eventsService, Event, CreateEventRequest } from '../services/eventsService';
 
 const screenWidth = Dimensions.get('window').width;
-
-interface Event {
-  id: string;
-  date: string;
-  title: string;
-  type: 'mindful-break' | 'workout' | 'custom';
-  time: string;
-  duration: string;
-  reminder: boolean;
-}
 
 interface Goal {
   id: string;
@@ -50,7 +45,7 @@ const CalendarScreen = () => {
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [modalVisible, setModalVisible] = useState<boolean>(false);
   const [eventModalVisible, setEventModalVisible] = useState<boolean>(false);
-  const [newEvent, setNewEvent] = useState<Partial<Event>>({
+  const [newEvent, setNewEvent] = useState<Partial<CreateEventRequest>>({
     date: '',
     title: '',
     type: 'custom',
@@ -59,38 +54,18 @@ const CalendarScreen = () => {
     reminder: true
   });
   
-  // Dummy data for events
-  const [events, setEvents] = useState<Event[]>([
-    {
-      id: '1',
-      date: '2023-07-10',
-      title: 'Morning Meditation',
-      type: 'mindful-break',
-      time: '08:00',
-      duration: '15 min',
-      reminder: true
-    },
-    {
-      id: '2',
-      date: '2023-07-10',
-      title: 'Evening Workout',
-      type: 'workout',
-      time: '18:00',
-      duration: '45 min',
-      reminder: true
-    },
-    {
-      id: '3',
-      date: '2023-07-12',
-      title: 'Team Meeting (Deep Work)',
-      type: 'custom',
-      time: '10:00',
-      duration: '60 min',
-      reminder: true
-    }
-  ]);
+  const {
+    events,
+    todaysEvents,
+    createEvent,
+    updateEvent,
+    deleteEvent,
+    refreshEvents,
+    getEventsForDate,
+    isLoading,
+    error
+  } = useEvents();
   
-  // Dummy data for goals
   const [goals, setGoals] = useState<Goal[]>([
     {
       id: '1',
@@ -121,7 +96,6 @@ const CalendarScreen = () => {
     }
   ]);
   
-  // Dummy data for focus/stress levels by date
   const focusStressData: FocusStressData = {
     '2023-07-01': { focus: 2.1, stress: 1.3 },
     '2023-07-02': { focus: 2.3, stress: 1.2 },
@@ -140,35 +114,27 @@ const CalendarScreen = () => {
     '2023-07-15': { focus: 1.8, stress: 1.8 }
   };
 
-  // Create marked dates for the calendar based on events and focus/stress levels
   const getMarkedDates = () => {
     const markedDates: any = {};
     
-    // Mark dates with events
     events.forEach(event => {
       if (!markedDates[event.date]) {
         markedDates[event.date] = { marked: true, dotColor: '#4287f5' };
       }
     });
     
-    // Color code dates based on focus/stress levels
     Object.entries(focusStressData).forEach(([date, data]) => {
-      // Calculate a color based on focus and stress levels
-      // High focus, low stress = Green
-      // Low focus, high stress = Red
-      // Balanced = Yellow
-      
       const focusLevel = data.focus;
       const stressLevel = data.stress;
       
       let backgroundColor = 'transparent';
       
       if (focusLevel > 2.0 && stressLevel < 1.5) {
-        backgroundColor = 'rgba(66, 230, 85, 0.1)'; // Green for good days
+        backgroundColor = 'rgba(66, 230, 85, 0.1)';
       } else if (focusLevel < 1.8 && stressLevel > 1.8) {
-        backgroundColor = 'rgba(230, 66, 66, 0.1)'; // Red for stressful days
+        backgroundColor = 'rgba(230, 66, 66, 0.1)';
       } else {
-        backgroundColor = 'rgba(230, 185, 66, 0.1)'; // Yellow for average days
+        backgroundColor = 'rgba(230, 185, 66, 0.1)';
       }
       
       markedDates[date] = {
@@ -184,7 +150,6 @@ const CalendarScreen = () => {
         }
       };
       
-      // If this is the selected date, highlight it
       if (date === selectedDate) {
         markedDates[date] = {
           ...markedDates[date],
@@ -204,65 +169,100 @@ const CalendarScreen = () => {
     return markedDates;
   };
   
-  // Get data for the selected date
   const getSelectedDateData = () => {
     if (!selectedDate) return null;
     
     return {
       date: selectedDate,
-      events: events.filter(event => event.date === selectedDate),
+      events: getEventsForDate(selectedDate),
       focusStress: focusStressData[selectedDate] || { focus: 0, stress: 0 }
     };
   };
   
-  // Handle date selection
   const handleDayPress = (day: DateData) => {
     setSelectedDate(day.dateString);
     setModalVisible(true);
   };
   
-  // Add a new event
-  const handleAddEvent = () => {
+  const handleAddEvent = async () => {
     if (newEvent.title && newEvent.date && newEvent.time) {
-      const event: Event = {
-        id: Date.now().toString(),
-        date: newEvent.date || selectedDate,
-        title: newEvent.title || '',
-        type: newEvent.type || 'custom',
-        time: newEvent.time || '',
-        duration: newEvent.duration || '30 min',
-        reminder: newEvent.reminder !== undefined ? newEvent.reminder : true
-      };
-      
-      setEvents([...events, event]);
-      setNewEvent({
-        date: '',
-        title: '',
-        type: 'custom',
-        time: '',
-        duration: '',
-        reminder: true
-      });
-      setEventModalVisible(false);
+      try {
+        const eventData: CreateEventRequest = {
+          title: newEvent.title || '',
+          date: newEvent.date || selectedDate,
+          time: newEvent.time || '',
+          duration: newEvent.duration || '30 min',
+          type: newEvent.type || 'custom',
+          reminder: newEvent.reminder !== undefined ? newEvent.reminder : true,
+          description: newEvent.description,
+          location: newEvent.location,
+          notes: newEvent.notes,
+          color: eventsService.getEventTypeColor(newEvent.type || 'custom'),
+          recurring: newEvent.recurring || false,
+          recurring_pattern: newEvent.recurring_pattern,
+          all_day: newEvent.all_day || false
+        };
+        
+        const createdEvent = await createEvent(eventData);
+        
+        if (createdEvent) {
+          setNewEvent({
+            date: '',
+            title: '',
+            type: 'custom',
+            time: '',
+            duration: '',
+            reminder: true
+          });
+          setEventModalVisible(false);
+        } else {
+          Alert.alert('Error', 'Failed to create event. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error creating event:', error);
+        Alert.alert('Error', 'Failed to create event. Please check your connection and try again.');
+      }
+    } else {
+      Alert.alert('Missing Information', 'Please fill in all required fields (title, date, and time).');
     }
   };
   
-  // Render an event item
   const renderEventItem = ({ item }: { item: Event }) => {
     const getEventIcon = (type: Event['type']) => {
-      switch(type) {
-        case 'mindful-break':
-          return 'meditation';
-        case 'workout':
-          return 'weight-lifter';
-        default:
-          return 'calendar-check';
-      }
+      return eventsService.getEventTypeIcon(type);
+    };
+
+    const handleDeleteEvent = async () => {
+      Alert.alert(
+        'Delete Event',
+        `Are you sure you want to delete "${item.title}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                const success = await deleteEvent(item.id);
+                if (!success) {
+                  Alert.alert('Error', 'Failed to delete event. Please try again.');
+                }
+              } catch (error) {
+                console.error('Error deleting event:', error);
+                Alert.alert('Error', 'Failed to delete event. Please check your connection and try again.');
+              }
+            }
+          }
+        ]
+      );
     };
     
     return (
       <View style={styles.eventItem}>
-        <View style={styles.eventIcon}>
+        <View style={[
+          styles.eventIcon, 
+          { backgroundColor: item.color || eventsService.getEventTypeColor(item.type) }
+        ]}>
           <MaterialCommunityIcons 
             name={getEventIcon(item.type) as any} 
             size={20} 
@@ -272,20 +272,37 @@ const CalendarScreen = () => {
         <View style={styles.eventContent}>
           <Text style={styles.eventTitle}>{item.title}</Text>
           <View style={styles.eventDetails}>
-            <Text style={styles.eventTime}>{item.time}</Text>
+            <Text style={styles.eventTime}>
+              {eventsService.formatEventTime(item.time)}
+            </Text>
             <Text style={styles.eventDuration}>{item.duration}</Text>
           </View>
+          {item.description && (
+            <Text style={styles.eventDescription} numberOfLines={2}>
+              {item.description}
+            </Text>
+          )}
+          {item.location && (
+            <View style={styles.eventLocation}>
+              <MaterialCommunityIcons name="map-marker" size={12} color="#7a889e" />
+              <Text style={styles.eventLocationText}>{item.location}</Text>
+            </View>
+          )}
         </View>
-        {item.reminder && (
-          <View style={styles.reminderBadge}>
-            <MaterialCommunityIcons name="bell" size={16} color="#FFFFFF" />
-          </View>
-        )}
+        <View style={styles.eventActions}>
+          {item.reminder && (
+            <View style={styles.reminderBadge}>
+              <MaterialCommunityIcons name="bell" size={16} color="#FFFFFF" />
+            </View>
+          )}
+          <TouchableOpacity onPress={handleDeleteEvent} style={styles.deleteEventButton}>
+            <MaterialCommunityIcons name="trash-can-outline" size={16} color="#FF6B6B" />
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
   
-  // Render a goal progress item
   const renderGoalItem = ({ item }: { item: Goal }) => {
     const progress = item.current / item.target;
     
@@ -330,7 +347,6 @@ const CalendarScreen = () => {
     );
   };
 
-  // Detailed Day Modal
   const renderDetailModal = () => {
     const dateData = getSelectedDateData();
     
@@ -443,7 +459,6 @@ const CalendarScreen = () => {
     );
   };
   
-  // Add Event Modal
   const renderAddEventModal = () => {
     return (
       <Modal
@@ -478,40 +493,56 @@ const CalendarScreen = () => {
               
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Type</Text>
-                <View style={styles.typeButtonsContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.typeButton,
-                      newEvent.type === 'mindful-break' && styles.typeButtonActive
-                    ]}
-                    onPress={() => setNewEvent({ ...newEvent, type: 'mindful-break' })}
-                  >
-                    <MaterialCommunityIcons name="meditation" size={16} color="#FFFFFF" />
-                    <Text style={styles.typeButtonText}>Mindful Break</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={[
-                      styles.typeButton,
-                      newEvent.type === 'workout' && styles.typeButtonActive
-                    ]}
-                    onPress={() => setNewEvent({ ...newEvent, type: 'workout' })}
-                  >
-                    <MaterialCommunityIcons name="weight-lifter" size={16} color="#FFFFFF" />
-                    <Text style={styles.typeButtonText}>Workout</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={[
-                      styles.typeButton,
-                      newEvent.type === 'custom' && styles.typeButtonActive
-                    ]}
-                    onPress={() => setNewEvent({ ...newEvent, type: 'custom' })}
-                  >
-                    <MaterialCommunityIcons name="calendar-check" size={16} color="#FFFFFF" />
-                    <Text style={styles.typeButtonText}>Custom</Text>
-                  </TouchableOpacity>
-                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeButtonsContainer}>
+                  {eventsService.getDefaultEventTypes().map((eventType) => (
+                    <TouchableOpacity
+                      key={eventType.value}
+                      style={[
+                        styles.typeButton,
+                        newEvent.type === eventType.value && styles.typeButtonActive,
+                        { borderColor: eventType.color }
+                      ]}
+                      onPress={() => setNewEvent({ ...newEvent, type: eventType.value })}
+                    >
+                      <MaterialCommunityIcons 
+                        name={eventType.icon as any} 
+                        size={16} 
+                        color={newEvent.type === eventType.value ? "#FFFFFF" : eventType.color} 
+                      />
+                      <Text style={[
+                        styles.typeButtonText,
+                        newEvent.type === eventType.value && styles.typeButtonTextActive,
+                        { color: newEvent.type === eventType.value ? "#FFFFFF" : eventType.color }
+                      ]}>
+                        {eventType.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Description (Optional)</Text>
+                <TextInput
+                  style={[styles.formInput, styles.formTextArea]}
+                  placeholder="Add event description..."
+                  placeholderTextColor="#7a889e"
+                  value={newEvent.description}
+                  onChangeText={text => setNewEvent({ ...newEvent, description: text })}
+                  multiline
+                  numberOfLines={3}
+                />
+              </View>
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Location (Optional)</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Event location"
+                  placeholderTextColor="#7a889e"
+                  value={newEvent.location}
+                  onChangeText={text => setNewEvent({ ...newEvent, location: text })}
+                />
               </View>
               
               <View style={styles.formRow}>
@@ -562,10 +593,15 @@ const CalendarScreen = () => {
               </View>
               
               <TouchableOpacity
-                style={styles.submitButton}
+                style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
                 onPress={handleAddEvent}
+                disabled={isLoading}
               >
-                <Text style={styles.submitButtonText}>Create Event</Text>
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.submitButtonText}>Create Event</Text>
+                )}
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -584,7 +620,6 @@ const CalendarScreen = () => {
           </TouchableOpacity>
         </View>
         
-        {/* Calendar */}
         <View style={styles.calendarContainer}>
           <Calendar
             style={styles.calendar}
@@ -635,13 +670,28 @@ const CalendarScreen = () => {
           </View>
         </View>
         
-        {/* Scrollable content area - Use contentContainer instead of direct nesting */}
         <ScrollView 
           style={styles.scrollContainer}
           contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isLoading}
+              onRefresh={refreshEvents}
+              tintColor="#4287f5"
+            />
+          }
         >
-          {/* Today's Events */}
+          {error && (
+            <View style={styles.errorContainer}>
+              <MaterialCommunityIcons name="alert-circle" size={24} color="#FF6B6B" />
+              <Text style={styles.errorText}>{error}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={refreshEvents}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Today's Events</Text>
@@ -658,7 +708,12 @@ const CalendarScreen = () => {
               </TouchableOpacity>
             </View>
             
-            {events.filter(event => event.date === new Date().toISOString().split('T')[0]).length === 0 ? (
+            {isLoading && todaysEvents.length === 0 ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#4287f5" />
+                <Text style={styles.loadingText}>Loading events...</Text>
+              </View>
+            ) : todaysEvents.length === 0 ? (
               <View style={styles.emptyStateContainer}>
                 <MaterialCommunityIcons name="calendar-blank" size={48} color="#7a889e" />
                 <Text style={styles.emptyState}>No events scheduled for today.</Text>
@@ -668,18 +723,15 @@ const CalendarScreen = () => {
               </View>
             ) : (
               <View style={styles.eventsListContainer}>
-                {events
-                  .filter(event => event.date === new Date().toISOString().split('T')[0])
-                  .map(item => (
-                    <React.Fragment key={item.id}>
-                      {renderEventItem({ item })}
-                    </React.Fragment>
-                  ))}
+                {todaysEvents.map(item => (
+                  <React.Fragment key={item.id}>
+                    {renderEventItem({ item })}
+                  </React.Fragment>
+                ))}
               </View>
             )}
           </View>
           
-          {/* Goal Progress */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Goal Progress</Text>
@@ -699,7 +751,6 @@ const CalendarScreen = () => {
           </View>
         </ScrollView>
         
-        {/* Render Modals */}
         {renderDetailModal()}
         {renderAddEventModal()}
       </View>
@@ -862,11 +913,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#7a889e',
   },
+  eventDescription: {
+    fontSize: 14,
+    color: '#7a889e',
+    marginTop: 4,
+  },
+  eventLocation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  eventLocationText: {
+    fontSize: 14,
+    color: '#7a889e',
+    marginLeft: 4,
+  },
+  eventActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   reminderBadge: {
     width: 28,
     height: 28,
     borderRadius: 14,
     backgroundColor: '#4287f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  deleteEventButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FF6B6B',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
@@ -1046,6 +1125,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginLeft: 4,
   },
+  typeButtonTextActive: {
+    fontWeight: 'bold',
+  },
   reminderContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1096,7 +1178,48 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     paddingHorizontal: 16,
-    paddingBottom: 100, // Extra space for bottom tabs
+    paddingBottom: 100,
+  },
+  formTextArea: {
+    height: 80,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#131d30',
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  retryButton: {
+    backgroundColor: '#4287f5',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  loadingText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#7a889e',
   },
 });
 

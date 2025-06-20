@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Switch,
   SafeAreaView,
+  Alert,
+  ActivityIndicator,
   StyleSheet,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -13,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/navigation';
 import { useTheme } from '../context/ThemeContext';
+import { authService } from '../services/auth';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -120,12 +123,50 @@ const OptionsScreen: React.FC = () => {
     hapticFeedback: true,
     autoConnect: true,
   });
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   const toggleSetting = (key: keyof typeof settings) => {
     setSettings(prev => ({
       ...prev,
       [key]: !prev[key]
     }));
+  };
+
+  const handleDeleteAccount = async () => {
+    Alert.alert(
+      'Delete Account',
+      'This action cannot be undone. All your data will be permanently deleted.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsDeletingAccount(true);
+              await authService.deleteUserAccount();
+              Alert.alert(
+                'Account Deleted',
+                'Your account has been successfully deleted.',
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => navigation.replace('Login'),
+                  },
+                ]
+              );
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to delete account');
+            } finally {
+              setIsDeletingAccount(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const userProfile = {
@@ -232,6 +273,24 @@ const OptionsScreen: React.FC = () => {
             <SettingsItem
               title="About Niura"
               onPress={() => {/* Show about info */}}
+              isLast={true}
+            />
+          </SettingsSection>
+
+          {/* Dangerous Actions */}
+          <SettingsSection title="Dangerous Actions" icon="alert-circle">
+            <SettingsItem
+              title="Delete Account"
+              description="Permanently delete your account and all data"
+              rightElement={
+                isDeletingAccount ? (
+                  <ActivityIndicator size="small" color="#ff4444" />
+                ) : (
+                  <MaterialCommunityIcons name="delete" size={20} color="#ff4444" />
+                )
+              }
+              onPress={isDeletingAccount ? undefined : handleDeleteAccount}
+              showChevron={false}
               isLast={true}
             />
           </SettingsSection>

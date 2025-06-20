@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -11,6 +11,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart, BarChart } from 'react-native-chart-kit';
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../theme/colors';
+import { eegService, Recommendation as BackendRecommendation, AggregateRange } from '../services/eegService';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -23,10 +24,49 @@ interface Recommendation {
 }
 
 const InsightsScreen = () => {
-  const [timeRange, setTimeRange] = useState('weekly');
+  const [selectedTimeRange, setSelectedTimeRange] = useState<AggregateRange>('weekly');
+  const [selectedDataType, setSelectedDataType] = useState('focus');
+  const [backendRecommendations, setBackendRecommendations] = useState<BackendRecommendation[]>([]);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(true);
+  const [aggregateData, setAggregateData] = useState<any>(null);
+  const [isLoadingAggregate, setIsLoadingAggregate] = useState(true);
   const navigation = useNavigation();
-  
-  // Dummy data for charts
+
+  useEffect(() => {
+    loadRecommendations();
+  }, []);
+
+  useEffect(() => {
+    loadAggregateData();
+  }, [selectedTimeRange]);
+
+  const loadRecommendations = async () => {
+    try {
+      const recs = await eegService.getRecommendations();
+      setBackendRecommendations(recs);
+    } catch (error) {
+      console.error('Error loading recommendations:', error);
+    } finally {
+      setIsLoadingRecommendations(false);
+    }
+  };
+
+  const loadAggregateData = async () => {
+    setIsLoadingAggregate(true);
+    try {
+      const data = await eegService.getEEGAggregate(selectedTimeRange);
+      const formattedData = eegService.formatAggregateForChart(data);
+      setAggregateData(formattedData);
+    } catch (error) {
+      console.error('Error loading aggregate data:', error);
+      // Keep using dummy data on error
+      setAggregateData(null);
+    } finally {
+      setIsLoadingAggregate(false);
+    }
+  };
+
+  // Dummy data for charts (fallback)
   const weeklyData = {
     labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     datasets: [
@@ -114,65 +154,98 @@ const InsightsScreen = () => {
     ]
   };
 
-  // Update the recommendation objects to use valid icon names
-  const recommendations = [
-    {
-      id: 1,
-      title: "Morning Focus Boost",
-      description: "Your focus peaks in the morning. Schedule important tasks before noon.",
-      icon: "weather-sunny" as const // Use const assertion to make TypeScript recognize this as a valid icon
-    },
-    {
-      id: 2,
-      title: "Late-Night Gaming Alert!",
-      description: "Gaming after 10PM correlated with 30% lower focus the next day.",
-      icon: "gamepad-variant" as const
-    },
-    {
-      id: 3,
-      title: "Caffeine Optimization",
-      description: "Two cups before noon shows optimal focus without stress increase.",
-      icon: "coffee" as const
-    },
-    {
-      id: 4,
-      title: "Breathing Exercise",
-      description: "Try 4-7-8 breathing when stress peaks in the afternoon.",
-      icon: "lungs" as const
-    }
-  ];
+  // Convert backend recommendations to local format with default icons
+  const getRecommendationIcon = (type: string, priority: string) => {
+    if (type === 'focus') return 'target';
+    if (type === 'stress') return 'meditation';
+    if (priority === 'high') return 'alert-circle';
+    return 'lightbulb-outline';
+  };
+
+  const recommendations = backendRecommendations.length > 0 
+    ? backendRecommendations.map((rec, index) => ({
+        id: typeof rec.id === 'number' ? rec.id : index + 1,
+        title: rec.title,
+        description: rec.description,
+        icon: getRecommendationIcon(rec.type, rec.priority)
+      }))
+    : [
+        {
+          id: 1,
+          title: "Morning Focus Boost",
+          description: "Your focus peaks in the morning. Schedule important tasks before noon.",
+          icon: "weather-sunny"
+        },
+        {
+          id: 2,
+          title: "Late-Night Gaming Alert!",
+          description: "Gaming after 10PM correlated with 30% lower focus the next day.",
+          icon: "gamepad-variant"
+        },
+        {
+          id: 3,
+          title: "Caffeine Optimization",
+          description: "Two cups before noon shows optimal focus without stress increase.",
+          icon: "coffee"
+        },
+        {
+          id: 4,
+          title: "Breathing Exercise",
+          description: "Try 4-7-8 breathing when stress peaks in the afternoon.",
+          icon: "lungs"
+        }
+      ];
 
   const renderTimeRangeSelector = () => (
     <View style={styles.timeRangeSelector}>
       <TouchableOpacity 
-        style={[styles.timeRangeButton, timeRange === 'weekly' && styles.activeTimeRange]}
-        onPress={() => setTimeRange('weekly')}
+        style={[styles.timeRangeButton, selectedTimeRange === 'daily' && styles.activeTimeRange]}
+        onPress={() => setSelectedTimeRange('daily')}
       >
-        <Text style={[styles.timeRangeText, timeRange === 'weekly' && styles.activeTimeRangeText]}>Week</Text>
+        <Text style={[styles.timeRangeText, selectedTimeRange === 'daily' && styles.activeTimeRangeText]}>Daily</Text>
       </TouchableOpacity>
       <TouchableOpacity 
-        style={[styles.timeRangeButton, timeRange === 'monthly' && styles.activeTimeRange]}
-        onPress={() => setTimeRange('monthly')}
+        style={[styles.timeRangeButton, selectedTimeRange === 'weekly' && styles.activeTimeRange]}
+        onPress={() => setSelectedTimeRange('weekly')}
       >
-        <Text style={[styles.timeRangeText, timeRange === 'monthly' && styles.activeTimeRangeText]}>Month</Text>
+        <Text style={[styles.timeRangeText, selectedTimeRange === 'weekly' && styles.activeTimeRangeText]}>Weekly</Text>
       </TouchableOpacity>
       <TouchableOpacity 
-        style={[styles.timeRangeButton, timeRange === 'yearly' && styles.activeTimeRange]}
-        onPress={() => setTimeRange('yearly')}
+        style={[styles.timeRangeButton, selectedTimeRange === 'monthly' && styles.activeTimeRange]}
+        onPress={() => setSelectedTimeRange('monthly')}
       >
-        <Text style={[styles.timeRangeText, timeRange === 'yearly' && styles.activeTimeRangeText]}>Year</Text>
+        <Text style={[styles.timeRangeText, selectedTimeRange === 'monthly' && styles.activeTimeRangeText]}>Monthly</Text>
       </TouchableOpacity>
     </View>
   );
 
   const getCurrentData = () => {
-    switch(timeRange) {
+    // Use real aggregate data if available, otherwise fallback to dummy data
+    if (aggregateData) {
+      return {
+        labels: aggregateData.labels,
+        datasets: [
+          {
+            data: aggregateData.focusData,
+            color: () => '#4287f5',
+            strokeWidth: 2
+          },
+          {
+            data: aggregateData.stressData,
+            color: () => '#FFA500',
+            strokeWidth: 2
+          }
+        ],
+        legend: ["Focus", "Stress"]
+      };
+    }
+
+    // Fallback to dummy data
+    switch(selectedTimeRange) {
       case 'weekly':
         return weeklyData;
       case 'monthly':
         return monthlyData;
-      case 'yearly':
-        return yearlyData;
       default:
         return weeklyData;
     }
@@ -225,17 +298,28 @@ const InsightsScreen = () => {
           {renderTimeRangeSelector()}
           
           <View style={styles.chartContainer}>
-            <LineChart
-              data={getCurrentData()}
-              width={screenWidth - 40}
-              height={220}
-              chartConfig={chartConfig}
-              bezier
-              style={styles.chart}
-            />
-            <Text style={styles.chartCaption}>
-              Pinch to zoom into specific timeframes
-            </Text>
+            {isLoadingAggregate ? (
+              <View style={styles.loadingContainer}>
+                <Text style={styles.loadingText}>Loading historical data...</Text>
+              </View>
+            ) : (
+              <>
+                <LineChart
+                  data={getCurrentData()}
+                  width={screenWidth - 40}
+                  height={220}
+                  chartConfig={chartConfig}
+                  bezier
+                  style={styles.chart}
+                />
+                <Text style={styles.chartCaption}>
+                  {aggregateData 
+                    ? `Real data (${aggregateData.totalSamples} samples)` 
+                    : 'Sample data - connect to see your actual trends'
+                  }
+                </Text>
+              </>
+            )}
           </View>
         </View>
 
@@ -435,6 +519,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#192337',
     borderRadius: 16,
     padding: 15,
+  },
+  loadingContainer: {
+    height: 220,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#7a889e',
+    fontSize: 16,
   },
   chart: {
     borderRadius: 16,

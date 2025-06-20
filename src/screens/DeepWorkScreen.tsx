@@ -13,6 +13,9 @@ import {
   Dimensions,
   FlatList,
   Pressable,
+  Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,6 +28,11 @@ import Svg, { Circle, LinearGradient as SvgLinearGradient, Defs, Stop } from 're
 import { useDemo } from '../context/DemoContext';
 import { colors } from '../theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
+// Add session service imports
+import { useSession } from '../hooks/useSession';
+import { sessionService, SessionLabel } from '../services/sessionService';
+import { useTasks } from '../hooks/useTasks';
+import { tasksService, CreateTaskRequest, Task } from '../services/tasksService';
 
 // Updated color theme
 const darkTheme = {
@@ -118,14 +126,6 @@ const NumberPicker = ({ value, onValueChange, options, label, disabled }: Number
   );
 };
 
-// Define Task type
-type Task = {
-  id: string;
-  title: string;
-  completed: boolean;
-  createdAt: Date;
-};
-
 // Type for navigation
 type NavigationProp = StackNavigationProp<RootStackParamList>;
 
@@ -133,6 +133,21 @@ type NavigationProp = StackNavigationProp<RootStackParamList>;
 const DeepWorkScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState<'timer' | 'tasks' | 'history'>('timer');
+  
+  // Session management with backend integration
+  const {
+    currentSession,
+    isSessionActive,
+    sessionDuration: liveSessionDuration,
+    sessionStats,
+    startSession,
+    endSession,
+    pauseSession,
+    resumeSession,
+    addEEGReading,
+    isLoading: sessionLoading,
+    error: sessionError
+  } = useSession();
   
   // STATE FOR TIMER TAB
   const [hours, setHours] = useState(0);
@@ -142,6 +157,13 @@ const DeepWorkScreen = () => {
   const [timeRemaining, setTimeRemaining] = useState(15); // Set to 15 seconds
   const [progress] = useState(new Animated.Value(0));
   const [hasStarted, setHasStarted] = useState(false);
+  
+  // Session configuration state
+  const [sessionName, setSessionName] = useState('');
+  const [sessionType, setSessionType] = useState<'focus' | 'meditation' | 'study' | 'break' | 'custom'>('focus');
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
+  const [availableLabels, setAvailableLabels] = useState<SessionLabel[]>([]);
+  const [showSessionSetup, setShowSessionSetup] = useState(false);
   
   // New state to track distractions and session data
   const [distractionCount, setDistractionCount] = useState<number>(0);
@@ -162,9 +184,71 @@ const DeepWorkScreen = () => {
   // Get demo values from context - update to get both demoMode flag and the focus/stress values
   const { demoMode, focusValue: demoFocusValue, stressValue: demoStressValue, timerStarted, timerEnded } = useDemo();
 
+  // Tasks integration with backend
+  const {
+    tasks,
+    pendingTasks,
+    completedTasks,
+    createTask,
+    updateTask,
+    deleteTask: removeTask,
+    toggleTaskCompletion,
+    refreshTasks,
+    isLoading: tasksLoading,
+    error: tasksError,
+    stats: taskStats
+  } = useTasks({ session_id: currentSession?.id });
+
   // STATE FOR TASKS TAB
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
+
+  // Load session labels on component mount
+  useEffect(() => {
+    const loadLabels = async () => {
+      try {
+        const labels = await sessionService.getSessionLabels();
+        setAvailableLabels(labels);
+      } catch (error) {
+        console.error('Error loading session labels:', error);
+        // Use default labels as fallback
+        setAvailableLabels(sessionService.getDefaultLabels());
+      }
+    };
+
+    loadLabels();
+  }, []);
+
+  // Sync session state with backend
+  useEffect(() => {
+    if (currentSession) {
+      setHasStarted(true);
+      setIsRunning(isSessionActive);
+      setSessionName(currentSession.name);
+      setSessionType(currentSession.session_type);
+      setSelectedLabels(currentSession.labels.map(label => typeof label.id === 'string' ? label.id : label.id.toString()));
+    } else {
+      setHasStarted(false);
+      setIsRunning(false);
+    }
+  }, [currentSession, isSessionActive]);
+
+  // Add EEG readings to session when metrics update
+  useEffect(() => {
+    if (isSessionActive && currentSession && isRunning) {
+      // Add current metrics as EEG reading
+      addEEGReading(metrics.focus, metrics.stress);
+    }
+  }, [metrics, isSessionActive, currentSession, isRunning, addEEGReading]);
+
+  // Update metrics from session stats
+  useEffect(() => {
+    if (sessionStats && sessionStats.readingsCount > 0) {
+      setMetrics({
+        focus: sessionStats.averageFocus,
+        stress: sessionStats.averageStress
+      });
+    }
+  }, [sessionStats]);
 
   // Function to navigate to summary screen directly (for testing)
   const goToSummaryScreen = useCallback(() => {
@@ -270,34 +354,64 @@ const DeepWorkScreen = () => {
             
             // Stop the timer
             setIsRunning(false);
-            setDebugMessage('Timer finished! Navigating to summary...');
+            setDebugMessage('Timer finished! Ending session...');
             
-            // Use the configured duration directly instead of calculating elapsed time
+            // End the backend session
+            const handleSessionEnd = async () => {
+              try {
+                if (isSessionActive && currentSession) {
+                  console.log('Ending backend session...');
+                  const success = await endSession();
+                  
+                  if (success) {
+                    console.log('Session ended successfully');
+                  } else {
+                    console.error('Failed to end session properly');
+                  }
+                }
+              } catch (error) {
+                console.error('Error ending session:', error);
+              }
+            };
+            
+            handleSessionEnd();
+            
+            // Use the configured duration instead of calculating elapsed time
             const configuredDuration = (hours * 3600) + (minutes * 60) + seconds;
             setSessionDuration(configuredDuration);
             
             // Ensure we have at least some data points for the summary
             console.log(`Session complete. Data points collected - Focus: ${focusHistory.length}, Stress: ${stressHistory.length}`);
             
-            // If we somehow have no data (which shouldn't happen), use fallback data
-            const fallbackFocusData = [1.2, 1.4, 1.6, 1.8, 2.0];
-            const fallbackStressData = [1.5, 1.3, 1.4, 1.2, 1.0];
+            // Use real session data if available, otherwise fallback
+            const finalFocusData = sessionStats && sessionStats.readingsCount > 0 
+              ? (focusHistory.length >= 2 ? focusHistory : [sessionStats.averageFocus, sessionStats.peakFocus])
+              : (focusHistory.length >= 2 ? focusHistory : 
+                 (focusHistory.length === 1 ? [...focusHistory, focusHistory[0] + 0.2] : [1.2, 1.4, 1.6, 1.8, 2.0]));
             
-            // Make sure we send at least 2 data points for a proper graph
-            const finalFocusData = focusHistory.length >= 2 ? focusHistory : 
-                                  (focusHistory.length === 1 ? [...focusHistory, focusHistory[0] + 0.2] : fallbackFocusData);
+            const finalStressData = sessionStats && sessionStats.readingsCount > 0
+              ? (stressHistory.length >= 2 ? stressHistory : [sessionStats.averageStress, sessionStats.averageStress - 0.2])
+              : (stressHistory.length >= 2 ? stressHistory : 
+                 (stressHistory.length === 1 ? [...stressHistory, stressHistory[0] - 0.1] : [1.5, 1.3, 1.4, 1.2, 1.0]));
             
-            const finalStressData = stressHistory.length >= 2 ? stressHistory : 
-                                   (stressHistory.length === 1 ? [...stressHistory, stressHistory[0] - 0.1] : fallbackStressData);
-            
-            // Navigate directly to summary screen with the configured duration
+            // Navigate to summary screen with real session data
             navigation.navigate('SessionSummary', {
               duration: configuredDuration,
               focusData: finalFocusData,
               stressData: finalStressData,
               distractionCount: distractionCount,
               completedTasks: tasks.filter(task => task.completed).length,
-              totalTasks: tasks.length
+              totalTasks: tasks.length,
+              // Add session information
+              sessionName: currentSession?.name || sessionName || 'Untitled Session',
+              sessionType: currentSession?.session_type || sessionType,
+              sessionStats: sessionStats ? {
+                averageFocus: sessionStats.averageFocus,
+                averageStress: sessionStats.averageStress,
+                peakFocus: sessionStats.peakFocus,
+                focusTimePercentage: sessionStats.focusTimePercentage,
+                readingsCount: sessionStats.readingsCount
+              } : undefined
             });
             
             if (demoMode) {
@@ -452,83 +566,128 @@ const DeepWorkScreen = () => {
   })), []);
 
   // Timer Tab Actions
-  const handleStartTimer = useCallback(() => {
-    // Reset the initialization flag when starting a new timer
-    initializing.current = false;
-    
-    // Clear any existing intervals first to be safe
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
+  const handleStartTimer = useCallback(async () => {
+    // Show session setup modal if no session name is provided
+    if (!sessionName.trim()) {
+      setShowSessionSetup(true);
+      return;
     }
-    
-    if (metricsIntervalRef.current) {
-      clearInterval(metricsIntervalRef.current);
-      metricsIntervalRef.current = null;
-    }
-    
-    setDebugMessage('Timer started');
-    console.log('Timer started with time:', timeRemaining);
-    
-    // If demo mode is active, immediately update metrics to match demo values
-    if (demoMode) {
-      console.log('Timer started in demo mode - applying demo values');
-      setMetrics({
-        focus: demoFocusValue,
-        stress: demoStressValue
-      });
-      // Start with demo values in history
-      setFocusHistory([demoFocusValue]);
-      setStressHistory([demoStressValue]);
-    } else {
-      // Regular session - start with initial metrics
-      console.log('Timer started in regular mode - initializing metrics history');
-      // Set initial random metrics for regular session
-      const initialFocus = 1.2 + (Math.random() * 0.6);
-      const initialStress = 1.5 + (Math.random() * 0.5);
-      setMetrics({
-        focus: initialFocus,
-        stress: initialStress
-      });
-      // Start with initial values in history
-      setFocusHistory([initialFocus]);
-      setStressHistory([initialStress]);
-    }
-    
-    setIsRunning(true);
-    setHasStarted(true);
-    if (demoMode) {
-      timerStarted && timerStarted();
-    }
-  }, [demoMode, demoFocusValue, demoStressValue, timerStarted, timeRemaining]);
 
-  const handleResetTimer = useCallback(() => {
-    // Reset the initialization flag when resetting the timer
-    initializing.current = false;
-    
-    // Clear any existing intervals
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
+    try {
+      // Reset the initialization flag when starting a new timer
+      initializing.current = false;
+      
+      // Clear any existing intervals first to be safe
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      
+      if (metricsIntervalRef.current) {
+        clearInterval(metricsIntervalRef.current);
+        metricsIntervalRef.current = null;
+      }
+      
+      setDebugMessage('Creating session...');
+      console.log('Creating session with backend...', { sessionName, sessionType, selectedLabels });
+      
+      // Create session with backend
+      const sessionData = {
+        name: sessionName.trim(),
+        session_type: sessionType,
+        planned_duration: (hours * 60) + minutes + Math.floor(seconds / 60), // Convert to minutes
+        labels: selectedLabels,
+        goals: tasks.filter(task => !task.completed).map(task => task.title), // Incomplete tasks as goals
+        notes: `Session started from mobile app. Planned duration: ${formatTime(timeRemaining)}`
+      };
+
+      const success = await startSession(sessionData);
+      
+      if (success) {
+        setDebugMessage('Session created successfully');
+        console.log('Backend session created, starting timer...');
+        
+        // If demo mode is active, immediately update metrics to match demo values
+        if (demoMode) {
+          console.log('Timer started in demo mode - applying demo values');
+          setMetrics({
+            focus: demoFocusValue,
+            stress: demoStressValue
+          });
+          // Start with demo values in history
+          setFocusHistory([demoFocusValue]);
+          setStressHistory([demoStressValue]);
+        } else {
+          // Regular session - start with initial metrics
+          console.log('Timer started in regular mode - initializing metrics history');
+          // Set initial random metrics for regular session
+          const initialFocus = 1.2 + (Math.random() * 0.6);
+          const initialStress = 1.5 + (Math.random() * 0.5);
+          setMetrics({
+            focus: initialFocus,
+            stress: initialStress
+          });
+          // Start with initial values in history
+          setFocusHistory([initialFocus]);
+          setStressHistory([initialStress]);
+        }
+        
+        setIsRunning(true);
+        setHasStarted(true);
+        if (demoMode) {
+          timerStarted && timerStarted();
+        }
+      } else {
+        Alert.alert('Error', sessionError || 'Failed to start session. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error starting session:', error);
+      Alert.alert('Error', 'Failed to start session. Please check your connection and try again.');
     }
-    
-    if (metricsIntervalRef.current) {
-      clearInterval(metricsIntervalRef.current);
-      metricsIntervalRef.current = null;
+  }, [sessionName, sessionType, selectedLabels, hours, minutes, seconds, timeRemaining, tasks, startSession, sessionError, demoMode, demoFocusValue, demoStressValue, timerStarted]);
+
+  const handleResetTimer = useCallback(async () => {
+    try {
+      // Reset the initialization flag when resetting the timer
+      initializing.current = false;
+      
+      // Clear any existing intervals
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      
+      if (metricsIntervalRef.current) {
+        clearInterval(metricsIntervalRef.current);
+        metricsIntervalRef.current = null;
+      }
+
+      // End current session if active
+      if (isSessionActive && currentSession) {
+        console.log('Ending session due to reset...');
+        await endSession();
+      }
+      
+      setIsRunning(false);
+      setHasStarted(false);
+      setTimeRemaining(15); // Reset to 15 seconds for testing
+      progress.setValue(0);
+      
+      // Reset session tracking data
+      setDistractionCount(0);
+      setSessionStartTime(null);
+      setSessionDuration(0);
+      setFocusHistory([]); // Empty initial array instead of sample data
+      setStressHistory([]); // Empty initial array instead of sample data
+      
+      // Reset session configuration
+      setSessionName('');
+      setSelectedLabels([]);
+      setSessionType('focus');
+    } catch (error) {
+      console.error('Error resetting session:', error);
     }
-    
-    setIsRunning(false);
-    setHasStarted(false);
-    setTimeRemaining(15); // Reset to 15 seconds for testing
-    progress.setValue(0);
-    
-    // Reset session tracking data
-    setDistractionCount(0);
-    setSessionStartTime(null);
-    setSessionDuration(0);
-    setFocusHistory([]); // Empty initial array instead of sample data
-    setStressHistory([]); // Empty initial array instead of sample data
-  }, [progress]);
+  }, [progress, isSessionActive, currentSession, endSession]);
 
   // Memoized computed values
   const totalDuration = useMemo(() => 
@@ -537,27 +696,64 @@ const DeepWorkScreen = () => {
   );
 
   // Tasks Tab Actions
-  const addTask = () => {
+  const addTask = async () => {
     if (newTaskTitle.trim()) {
-      const newTask: Task = {
-        id: Date.now().toString(),
-        title: newTaskTitle.trim(),
-        completed: false,
-        createdAt: new Date()
-      };
-      setTasks([...tasks, newTask]);
-      setNewTaskTitle('');
+      try {
+        const taskData: CreateTaskRequest = {
+          title: newTaskTitle.trim(),
+          priority: 'medium',
+          category: 'work',
+          session_id: currentSession?.id
+        };
+        
+        const newTask = await createTask(taskData);
+        if (newTask) {
+          setNewTaskTitle('');
+        } else {
+          Alert.alert('Error', 'Failed to create task. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error creating task:', error);
+        Alert.alert('Error', 'Failed to create task. Please check your connection and try again.');
+      }
     }
   };
 
-  const toggleTask = (taskId: string) => {
-    setTasks(tasks.map(task => 
-      task.id === taskId ? { ...task, completed: !task.completed } : task
-    ));
+  const toggleTask = async (taskId: string) => {
+    try {
+      const success = await toggleTaskCompletion(taskId);
+      if (!success) {
+        Alert.alert('Error', 'Failed to update task. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error toggling task:', error);
+      Alert.alert('Error', 'Failed to update task. Please check your connection and try again.');
+    }
   };
 
-  const deleteTask = (taskId: string) => {
-    setTasks(tasks.filter(task => task.id !== taskId));
+  const deleteTask = async (taskId: string) => {
+    try {
+      Alert.alert(
+        'Delete Task',
+        'Are you sure you want to delete this task?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              const success = await removeTask(taskId);
+              if (!success) {
+                Alert.alert('Error', 'Failed to delete task. Please try again.');
+              }
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      Alert.alert('Error', 'Failed to delete task. Please check your connection and try again.');
+    }
   };
 
   // Add a function to record distractions
@@ -695,6 +891,40 @@ const DeepWorkScreen = () => {
       case 'tasks':
         return (
           <View style={styles.tabContentContainer}>
+            {/* Task Statistics Header */}
+            {tasks.length > 0 && (
+              <View style={styles.taskStatsContainer}>
+                <View style={styles.taskStatItem}>
+                  <Text style={styles.taskStatValue}>{taskStats.total}</Text>
+                  <Text style={styles.taskStatLabel}>Total</Text>
+                </View>
+                <View style={styles.taskStatItem}>
+                  <Text style={styles.taskStatValue}>{taskStats.completed}</Text>
+                  <Text style={styles.taskStatLabel}>Done</Text>
+                </View>
+                <View style={styles.taskStatItem}>
+                  <Text style={styles.taskStatValue}>{taskStats.pending}</Text>
+                  <Text style={styles.taskStatLabel}>Pending</Text>
+                </View>
+                <View style={styles.taskStatItem}>
+                  <Text style={styles.taskStatValue}>{taskStats.completionRate}%</Text>
+                  <Text style={styles.taskStatLabel}>Complete</Text>
+                </View>
+              </View>
+            )}
+
+            {/* Error Display */}
+            {tasksError && (
+              <View style={styles.errorContainer}>
+                <MaterialCommunityIcons name="alert-circle" size={20} color="#FF6B6B" />
+                <Text style={styles.errorText}>{tasksError}</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={refreshTasks}>
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Task Input */}
             <View style={styles.taskInputContainer}>
               <TextInput
                 style={styles.taskInput}
@@ -704,21 +934,32 @@ const DeepWorkScreen = () => {
                 onChangeText={setNewTaskTitle}
                 returnKeyType="done"
                 onSubmitEditing={addTask}
+                editable={!tasksLoading}
               />
               <TouchableOpacity 
-                style={styles.addTaskButton} 
+                style={[styles.addTaskButton, tasksLoading && styles.addTaskButtonDisabled]} 
                 onPress={addTask} 
-                disabled={!newTaskTitle.trim()}
+                disabled={!newTaskTitle.trim() || tasksLoading}
               >
-                <MaterialCommunityIcons 
-                  name="plus" 
-                  size={24} 
-                  color={newTaskTitle.trim() ? darkTheme.text.primary : darkTheme.text.secondary} 
-                />
+                {tasksLoading ? (
+                  <ActivityIndicator size="small" color={darkTheme.text.secondary} />
+                ) : (
+                  <MaterialCommunityIcons 
+                    name="plus" 
+                    size={24} 
+                    color={newTaskTitle.trim() ? darkTheme.text.primary : darkTheme.text.secondary} 
+                  />
+                )}
               </TouchableOpacity>
             </View>
             
-            {tasks.length === 0 ? (
+            {/* Task List */}
+            {tasksLoading && tasks.length === 0 ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={darkTheme.primary.main} />
+                <Text style={styles.loadingText}>Loading tasks...</Text>
+              </View>
+            ) : tasks.length === 0 ? (
               <View style={styles.emptyStateContainer}>
                 <MaterialCommunityIcons 
                   name="clipboard-text-outline" 
@@ -729,9 +970,21 @@ const DeepWorkScreen = () => {
                 <Text style={styles.emptyStateSubtext}>Add tasks to keep track of your work</Text>
               </View>
             ) : (
-              <ScrollView style={styles.taskList}>
+              <ScrollView 
+                style={styles.taskList}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={tasksLoading}
+                    onRefresh={refreshTasks}
+                    tintColor={darkTheme.primary.main}
+                  />
+                }
+              >
                 {tasks.map(task => (
-                  <View key={task.id} style={styles.taskItem}>
+                  <View key={task.id} style={[
+                    styles.taskItem,
+                    task.completed && styles.taskItemCompleted
+                  ]}>
                     <TouchableOpacity
                       style={styles.taskCheckbox}
                       onPress={() => toggleTask(task.id)}
@@ -742,12 +995,59 @@ const DeepWorkScreen = () => {
                         color={task.completed ? darkTheme.primary.main : darkTheme.text.secondary}
                       />
                     </TouchableOpacity>
-                    <Text style={[
-                      styles.taskTitle,
-                      task.completed && styles.taskTitleCompleted
-                    ]}>
-                      {task.title}
-                    </Text>
+                    
+                    <View style={styles.taskContent}>
+                      <Text style={[
+                        styles.taskTitle,
+                        task.completed && styles.taskTitleCompleted
+                      ]}>
+                        {task.title}
+                      </Text>
+                      
+                      {/* Task metadata */}
+                      <View style={styles.taskMetadata}>
+                        {task.priority && (
+                          <View style={[
+                            styles.taskPriorityBadge,
+                            { backgroundColor: tasksService.getTaskPriorityColor(task.priority) }
+                          ]}>
+                            <MaterialCommunityIcons
+                              name={tasksService.getTaskPriorityIcon(task.priority) as any}
+                              size={12}
+                              color="#FFFFFF"
+                            />
+                            <Text style={styles.taskPriorityText}>{task.priority}</Text>
+                          </View>
+                        )}
+                        
+                        {task.category && (
+                          <View style={[
+                            styles.taskCategoryBadge,
+                            { backgroundColor: tasksService.getTaskCategoryColor(task.category) }
+                          ]}>
+                            <MaterialCommunityIcons
+                              name={tasksService.getTaskCategoryIcon(task.category) as any}
+                              size={12}
+                              color="#FFFFFF"
+                            />
+                            <Text style={styles.taskCategoryText}>{task.category}</Text>
+                          </View>
+                        )}
+                        
+                        {task.estimated_duration && (
+                          <Text style={styles.taskDuration}>
+                            ~{tasksService.formatTaskDuration(task.estimated_duration)}
+                          </Text>
+                        )}
+                      </View>
+                      
+                      {task.description && (
+                        <Text style={styles.taskDescription} numberOfLines={2}>
+                          {task.description}
+                        </Text>
+                      )}
+                    </View>
+                    
                     <TouchableOpacity
                       style={styles.deleteButton}
                       onPress={() => deleteTask(task.id)}
@@ -794,7 +1094,16 @@ const DeepWorkScreen = () => {
         <View style={styles.timerControls}>
           <TouchableOpacity 
             style={[styles.timerButton, isRunning && styles.pauseButton]}
-            onPress={() => setIsRunning(!isRunning)}
+            onPress={() => {
+              if (isRunning) {
+                pauseSession();
+                setIsRunning(false);
+              } else {
+                resumeSession();
+                setIsRunning(true);
+              }
+            }}
+            disabled={sessionLoading}
           >
             <MaterialCommunityIcons 
               name={isRunning ? "pause" : "play"} 
@@ -809,6 +1118,7 @@ const DeepWorkScreen = () => {
           <TouchableOpacity 
             style={styles.timerButton}
             onPress={handleResetTimer}
+            disabled={sessionLoading}
           >
             <MaterialCommunityIcons 
               name="refresh" 
@@ -838,14 +1148,137 @@ const DeepWorkScreen = () => {
     } else {
       return (
         <TouchableOpacity 
-          style={styles.startButton}
+          style={[styles.startButton, sessionLoading && styles.startButtonDisabled]}
           onPress={handleStartTimer}
+          disabled={sessionLoading}
         >
-          <Text style={styles.startButtonText}>Start Session</Text>
+          <Text style={styles.startButtonText}>
+            {sessionLoading ? 'Creating Session...' : 'Start Session'}
+          </Text>
         </TouchableOpacity>
       );
     }
   };
+
+  // Session Setup Modal Component
+  const renderSessionSetupModal = () => (
+    <Modal
+      visible={showSessionSetup}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowSessionSetup(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.sessionSetupModal}>
+          <View style={styles.sessionSetupHeader}>
+            <Text style={styles.sessionSetupTitle}>Session Setup</Text>
+            <TouchableOpacity onPress={() => setShowSessionSetup(false)}>
+              <MaterialCommunityIcons name="close" size={24} color={darkTheme.text.primary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Session Name Input */}
+          <View style={styles.sessionInputContainer}>
+            <Text style={styles.sessionInputLabel}>Session Name</Text>
+            <TextInput
+              style={styles.sessionInput}
+              placeholder="Enter session name..."
+              placeholderTextColor={darkTheme.text.secondary}
+              value={sessionName}
+              onChangeText={setSessionName}
+              returnKeyType="next"
+            />
+          </View>
+
+          {/* Session Type Picker */}
+          <View style={styles.sessionInputContainer}>
+            <Text style={styles.sessionInputLabel}>Session Type</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sessionTypeContainer}>
+              {(['focus', 'meditation', 'study', 'break', 'custom'] as const).map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  style={[
+                    styles.sessionTypeButton,
+                    sessionType === type && styles.sessionTypeButtonActive
+                  ]}
+                  onPress={() => setSessionType(type)}
+                >
+                  <MaterialCommunityIcons
+                    name={sessionService.getSessionTypeIcon(type) as any}
+                    size={20}
+                    color={sessionType === type ? '#FFFFFF' : darkTheme.text.secondary}
+                  />
+                  <Text style={[
+                    styles.sessionTypeText,
+                    sessionType === type && styles.sessionTypeTextActive
+                  ]}>
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Session Labels */}
+          <View style={styles.sessionInputContainer}>
+            <Text style={styles.sessionInputLabel}>Labels (Optional)</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sessionLabelsContainer}>
+              {availableLabels.slice(0, 6).map((label) => {
+                const labelId = typeof label.id === 'string' ? label.id : label.id.toString();
+                const isSelected = selectedLabels.includes(labelId);
+                
+                return (
+                  <TouchableOpacity
+                    key={labelId}
+                    style={[
+                      styles.sessionLabelButton,
+                      isSelected && styles.sessionLabelButtonActive,
+                      { borderColor: label.color || darkTheme.primary.main }
+                    ]}
+                    onPress={() => {
+                      if (isSelected) {
+                        setSelectedLabels(selectedLabels.filter(id => id !== labelId));
+                      } else {
+                        setSelectedLabels([...selectedLabels, labelId]);
+                      }
+                    }}
+                  >
+                    <Text style={[
+                      styles.sessionLabelText,
+                      isSelected && styles.sessionLabelTextActive
+                    ]}>
+                      {label.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.sessionSetupActions}>
+            <TouchableOpacity 
+              style={styles.sessionCancelButton}
+              onPress={() => setShowSessionSetup(false)}
+            >
+              <Text style={styles.sessionCancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.sessionStartButton, !sessionName.trim() && styles.sessionStartButtonDisabled]}
+              onPress={() => {
+                setShowSessionSetup(false);
+                // Delay the start to allow modal to close
+                setTimeout(handleStartTimer, 100);
+              }}
+              disabled={!sessionName.trim()}
+            >
+              <Text style={styles.sessionStartButtonText}>Start Session</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 
   return (
     <View style={styles.mainContainer}>
@@ -890,6 +1323,7 @@ const DeepWorkScreen = () => {
       {/* Content Area */}
       <View style={styles.contentContainer}>
         {renderTabContent()}
+        {renderSessionSetupModal()}
       </View>
     </View>
   );
@@ -1050,6 +1484,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: '80%',
   },
+  startButtonDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
   startButtonText: {
     color: darkTheme.text.primary,
     fontSize: 16,
@@ -1205,6 +1642,236 @@ const styles = StyleSheet.create({
     color: '#FF9800',
     fontSize: 14,
     fontWeight: '500',
+  },
+  sessionSetupModal: {
+    backgroundColor: darkTheme.background.secondary,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingVertical: 20,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    maxHeight: '80%',
+  },
+  sessionSetupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  sessionSetupTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: darkTheme.text.primary,
+  },
+  sessionInputContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  sessionInputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: darkTheme.text.primary,
+    marginBottom: 8,
+  },
+  sessionInput: {
+    backgroundColor: darkTheme.background.card,
+    borderRadius: 8,
+    padding: 12,
+    color: darkTheme.text.primary,
+    fontSize: 16,
+  },
+  sessionTypeContainer: {
+    flexDirection: 'row',
+  },
+  sessionTypeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: darkTheme.text.secondary,
+    borderRadius: 8,
+    marginRight: 8,
+    backgroundColor: darkTheme.background.card,
+  },
+  sessionTypeButtonActive: {
+    borderColor: darkTheme.primary.main,
+    backgroundColor: darkTheme.primary.main,
+  },
+  sessionTypeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: darkTheme.text.secondary,
+    marginLeft: 6,
+  },
+  sessionTypeTextActive: {
+    color: '#FFFFFF',
+  },
+  sessionLabelsContainer: {
+    flexDirection: 'row',
+  },
+  sessionLabelButton: {
+    padding: 8,
+    borderWidth: 1,
+    borderColor: darkTheme.text.secondary,
+    borderRadius: 16,
+    marginRight: 8,
+    backgroundColor: darkTheme.background.card,
+  },
+  sessionLabelButtonActive: {
+    backgroundColor: darkTheme.primary.main,
+  },
+  sessionLabelText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: darkTheme.text.secondary,
+  },
+  sessionLabelTextActive: {
+    color: '#FFFFFF',
+  },
+  sessionSetupActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 12,
+  },
+  sessionCancelButton: {
+    flex: 1,
+    backgroundColor: darkTheme.background.card,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  sessionCancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: darkTheme.text.secondary,
+  },
+  sessionStartButton: {
+    flex: 1,
+    backgroundColor: darkTheme.primary.main,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  sessionStartButtonDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  sessionStartButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  taskStatsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+    backgroundColor: darkTheme.background.secondary,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  taskStatItem: {
+    alignItems: 'center',
+  },
+  taskStatValue: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: darkTheme.text.primary,
+    marginBottom: 4,
+  },
+  taskStatLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: darkTheme.text.secondary,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: darkTheme.background.secondary,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    flex: 1,
+    color: darkTheme.text.primary,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  retryButton: {
+    padding: 12,
+    backgroundColor: darkTheme.primary.main,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: darkTheme.text.primary,
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 16,
+  },
+  taskContent: {
+    flex: 1,
+  },
+  taskMetadata: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  taskPriorityBadge: {
+    padding: 4,
+    borderWidth: 1,
+    borderColor: darkTheme.text.secondary,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  taskPriorityText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: darkTheme.text.primary,
+  },
+  taskCategoryBadge: {
+    padding: 4,
+    borderWidth: 1,
+    borderColor: darkTheme.text.secondary,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  taskCategoryText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: darkTheme.text.primary,
+  },
+  taskDuration: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: darkTheme.text.secondary,
+  },
+  taskDescription: {
+    fontSize: 14,
+    color: darkTheme.text.primary,
+  },
+  addTaskButtonDisabled: {
+    opacity: 0.5,
+  },
+  taskItemCompleted: {
+    opacity: 0.7,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
   },
 });
 

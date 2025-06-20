@@ -11,9 +11,6 @@ import { BLEProvider } from './src/context/BLEContext';
 import { DatabaseProvider } from './src/context/DatabaseContext';
 import { linking } from './src/navigation/linking';
 
-// Import Amplify configuration
-import './src/config/amplify';
-
 export default function App() {
   return (
     <ThemeProvider>

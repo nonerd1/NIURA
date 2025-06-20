@@ -1,11 +1,11 @@
 # NIURA Mobile App
 
-A React Native mobile application for NIURA, featuring BLE connectivity, AWS Cognito authentication, and real-time data monitoring.
+A React Native mobile application for NIURA, featuring BLE connectivity, backend API authentication, and real-time data monitoring.
 
 ## Features
 
 - Bluetooth Low Energy (BLE) connectivity with ESP32 devices
-- AWS Cognito authentication with email and Google Sign-In
+- Backend API authentication with JWT tokens
 - Background BLE service for continuous data monitoring
 - Modern UI with dark/light theme support
 - Deep linking support
@@ -36,9 +36,7 @@ cd ios && pod install && cd ..
 3. Set up environment variables:
 Create a `.env` file in the root directory with:
 ```
-AWS_REGION=your-aws-region
-USER_POOL_ID=your-user-pool-id
-USER_POOL_WEB_CLIENT_ID=your-client-id
+API_BASE_URL=http://127.0.0.1:8000/api
 ```
 
 4. Run the app:
@@ -62,9 +60,20 @@ src/
 ├── context/        # React Context providers
 ├── navigation/     # Navigation setup
 ├── screens/        # App screens
-├── services/       # Business logic
+├── services/       # Business logic and API calls
 └── utils/          # Helper functions
 ```
+
+## API Integration
+
+The app integrates with a backend API for user authentication and data management. The API configuration is located in `src/config/amplify.ts`.
+
+### Authentication Flow
+
+1. **Registration**: Users register with email, password, firstName, and lastName
+2. **Login**: Users authenticate with email and password
+3. **Token Management**: JWT tokens are automatically handled for authenticated requests
+4. **Session Management**: User sessions are maintained across app restarts
 
 ## Contributing
 

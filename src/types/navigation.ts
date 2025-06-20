@@ -14,6 +14,10 @@ export type RootStackParamList = {
   Verification: {
     email: string;
   };
+  ResetPassword: {
+    email: string;
+  };
+  EditProfile: undefined;
   MainTabs: NavigatorScreenParams<RootTabParamList>;
   DetailedMetrics: {
     focusData: number[];
@@ -56,6 +60,15 @@ export type RootStackParamList = {
     distractionCount: number;
     completedTasks: number;
     totalTasks: number;
+    sessionName?: string;
+    sessionType?: 'focus' | 'meditation' | 'study' | 'break' | 'custom';
+    sessionStats?: {
+      averageFocus: number;
+      averageStress: number;
+      peakFocus: number;
+      focusTimePercentage: number;
+      readingsCount: number;
+    };
   };
 };
 

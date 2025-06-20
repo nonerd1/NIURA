@@ -1,30 +1,70 @@
-import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView, Pressable, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, Pressable, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../theme/colors';
 import { useDemo } from '../context/DemoContext';
+import { authService, User } from '../services/auth';
+import { RootStackParamList } from '../types/navigation';
 
-// Define the RootStackParamList type to include the Home screen
-type RootStackParamList = {
-  Home: undefined;
-  // other screens
-};
+type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const ProfileScreen = () => {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<ProfileScreenNavigationProp>();
   const { demoMode, startDemo } = useDemo();
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadUserData();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const currentUser = await authService.getCurrentUser();
+      setUser(currentUser);
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleStartDemo = () => {
     console.log('Starting demo mode from profile screen');
     startDemo();
-    // Removing alert so it doesn't show during demo video recording
-    // alert('Demo Mode Activated! Active for 30 seconds.\n\nPress the back button to return to the Home Screen and see the demo values.');
-    
-    // Automatically navigate back to the Home screen
     navigation.goBack();
   };
+
+  const handleEditProfile = () => {
+    navigation.navigate('EditProfile');
+  };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await authService.signOut();
+              navigation.replace('Login');
+            } catch (error: any) {
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const displayName = user ? `${user.firstName} ${user.lastName}` : 'Pari Patel';
+  const displayEmail = user?.email || 'pari@niura.io';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -57,9 +97,23 @@ const ProfileScreen = () => {
                 color={colors.primary.main} 
                 style={styles.profileIcon}
               />
+              {!demoMode && (
+                <View style={styles.demoIndicator}>
+                  <Text style={styles.demoIndicatorText}>DEMO</Text>
+                </View>
+              )}
             </Pressable>
-            <Text style={styles.userName}>Pari Patel</Text>
-            <Text style={styles.userEmail}>pari@niura.io</Text>
+            {!demoMode && (
+              <Text style={styles.tapToActivate}>Tap to activate demo mode</Text>
+            )}
+            {isLoading ? (
+              <ActivityIndicator size="large" color={colors.primary.main} style={{ marginTop: 16 }} />
+            ) : (
+              <>
+                <Text style={styles.userName}>{displayName}</Text>
+                <Text style={styles.userEmail}>{displayEmail}</Text>
+              </>
+            )}
           </View>
 
           {/* Stats */}
@@ -82,7 +136,7 @@ const ProfileScreen = () => {
 
           {/* Menu Items */}
           <View style={styles.menuContainer}>
-            <Pressable style={styles.menuItem}>
+            <Pressable style={styles.menuItem} onPress={handleEditProfile}>
               <MaterialCommunityIcons name="account-edit" size={24} color={colors.text.primary} />
               <Text style={styles.menuText}>Edit Profile</Text>
               <Ionicons name="chevron-forward" size={24} color={colors.text.secondary} />
@@ -100,7 +154,7 @@ const ProfileScreen = () => {
               <Ionicons name="chevron-forward" size={24} color={colors.text.secondary} />
             </Pressable>
 
-            <Pressable style={[styles.menuItem, styles.logoutButton]}>
+            <Pressable style={[styles.menuItem, styles.logoutButton]} onPress={handleLogout}>
               <MaterialCommunityIcons name="logout" size={24} color={colors.error} />
               <Text style={[styles.menuText, { color: colors.error }]}>Log Out</Text>
             </Pressable>

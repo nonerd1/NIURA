@@ -13,6 +13,8 @@ import SessionSummary from '../screens/SessionSummary';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import VerificationScreen from '../screens/VerificationScreen';
+import ResetPasswordScreen from '../screens/ResetPasswordScreen';
+import EditProfileScreen from '../screens/EditProfileScreen';
 import { RootStackParamList } from '../types/navigation';
 import { linking, handleOAuthCallback } from './linking';
 
@@ -54,6 +56,8 @@ const AppNavigator = () => {
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
       <Stack.Screen name="Verification" component={VerificationScreen} />
+      <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+      <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="MainTabs" component={BottomTabNavigator} />
       <Stack.Screen 
         name="DetailedMetrics" 

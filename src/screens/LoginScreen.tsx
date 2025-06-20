@@ -25,6 +25,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isForgotPasswordLoading, setIsForgotPasswordLoading] = useState(false);
 
   const handleEmailLogin = async () => {
     if (!email || !password) {
@@ -44,6 +45,32 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       Alert.alert('Error', message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      Alert.alert('Error', 'Please enter your email address first');
+      return;
+    }
+
+    try {
+      setIsForgotPasswordLoading(true);
+      await authService.forgotPassword(email);
+      Alert.alert(
+        'Success',
+        'Password reset instructions have been sent to your email.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('ResetPassword', { email }),
+          }
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to send reset email');
+    } finally {
+      setIsForgotPasswordLoading(false);
     }
   };
 
@@ -103,6 +130,18 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
                   secureTextEntry
                 />
               </View>
+
+              <TouchableOpacity
+                style={styles.forgotPasswordButton}
+                onPress={handleForgotPassword}
+                disabled={isForgotPasswordLoading}
+              >
+                {isForgotPasswordLoading ? (
+                  <ActivityIndicator size="small" color="#4a90e2" />
+                ) : (
+                  <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                )}
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.loginButton}
@@ -203,6 +242,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#FFFFFF',
   },
+  forgotPasswordButton: {
+    alignSelf: 'flex-end',
+    paddingVertical: 5,
+    marginBottom: 15,
+  },
+  forgotPasswordText: {
+    color: '#4a90e2',
+    fontSize: 14,
+    fontWeight: '500',
+  },
   loginButton: {
     backgroundColor: '#4a90e2',
     borderRadius: 5,
@@ -227,31 +276,34 @@ const styles = StyleSheet.create({
   },
   dividerText: {
     color: '#AAAAAA',
-    paddingHorizontal: 10,
+    paddingHorizontal: 15,
     fontSize: 14,
   },
   googleButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#2A3442',
+    borderWidth: 1,
+    borderColor: '#3A4452',
     borderRadius: 5,
     padding: 15,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 20,
   },
   googleButtonText: {
-    color: '#000000',
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     marginLeft: 10,
   },
   switchButton: {
-    marginTop: 20,
     alignItems: 'center',
+    paddingVertical: 10,
   },
   switchText: {
     color: '#4a90e2',
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
 

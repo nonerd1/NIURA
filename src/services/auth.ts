@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiClient } from './apiClient';
+import { apiConfig } from '../config/amplify';
 
 // Remove all AWS Amplify related code
 // Remove references to SignUpOutput, signUp, signIn, getCurrentUser, fetchUserAttributes, confirmSignUp, signOut, AsyncStorage
@@ -28,6 +30,26 @@ export interface User {
   };
 }
 
+// Backend API response interfaces
+interface BackendAuthResponse {
+  user: {
+    id: number | string;
+    email: string;
+    first_name?: string;
+    last_name?: string;
+    username?: string;
+  };
+  token?: string; // JWT token if your backend provides it
+  access_token?: string; // Alternative token field name
+}
+
+interface BackendErrorResponse {
+  message?: string;
+  detail?: string;
+  error?: string;
+  errors?: Record<string, string[]>;
+}
+
 class AuthService {
   private currentUser: User | null = null;
 
@@ -35,20 +57,38 @@ class AuthService {
     try {
       console.log('Starting sign up process for:', email);
       
-      // TODO: Implement actual signup logic here
-      // This is a placeholder implementation
+      // Make API call to your backend
+      const response = await apiClient.post<BackendAuthResponse>(
+        apiConfig.endpoints.register,
+        {
+          email,
+          password,
+          first_name: firstName,
+          last_name: lastName,
+        }
+      );
+
+      // Transform backend response to your app's User format
       const user: User = {
-        id: Math.random().toString(36).substring(7),
-        email,
-        firstName,
-        lastName
+        id: String(response.data.user.id),
+        email: response.data.user.email,
+        firstName: response.data.user.first_name || firstName,
+        lastName: response.data.user.last_name || lastName,
       };
 
+      // Store auth token if provided
+      const token = response.data.token || response.data.access_token;
+      if (token) {
+        await AsyncStorage.setItem('authToken', token);
+      }
+
       this.currentUser = user;
+      await this.storeSession(user);
+      
       return user;
     } catch (error: any) {
       console.error('Error signing up:', error);
-      throw new Error('Failed to sign up. Please try again.');
+      throw new Error(error.message || 'Failed to sign up. Please try again.');
     }
   }
 
@@ -56,27 +96,51 @@ class AuthService {
     try {
       console.log('Starting sign in process for:', email);
       
-      // TODO: Implement actual signin logic here
-      // This is a placeholder implementation
+      // Make API call to your backend - POST /api/login
+      const response = await apiClient.post<BackendAuthResponse>(
+        apiConfig.endpoints.login,
+        {
+          email,
+          password,
+        }
+      );
+
+      // Transform backend response to your app's User format
       const user: User = {
-        id: Math.random().toString(36).substring(7),
-        email,
-        firstName: 'Test',
-        lastName: 'User'
+        id: String(response.data.user.id),
+        email: response.data.user.email,
+        firstName: response.data.user.first_name || 'User',
+        lastName: response.data.user.last_name || '',
       };
+
+      // Store auth token if provided
+      const token = response.data.token || response.data.access_token;
+      if (token) {
+        await AsyncStorage.setItem('authToken', token);
+      }
 
       this.currentUser = user;
       await this.storeSession(user);
+      
       return user;
     } catch (error: any) {
       console.error('Error signing in:', error);
-      throw new Error('Failed to sign in. Please check your credentials and try again.');
+      throw new Error(error.message || 'Failed to sign in. Please check your credentials and try again.');
     }
   }
 
   async signOut(): Promise<void> {
     try {
-      await AsyncStorage.multiRemove(['accessToken', 'idToken', 'user']);
+      // Try to call backend logout endpoint if it exists
+      try {
+        await apiClient.post(apiConfig.endpoints.logout);
+      } catch (error) {
+        // Ignore logout endpoint errors, still clear local data
+        console.warn('Backend logout failed, but clearing local data:', error);
+      }
+
+      // Clear all stored auth data
+      await AsyncStorage.multiRemove(['authToken', 'accessToken', 'idToken', 'user']);
       this.currentUser = null;
     } catch (error) {
       console.error('Error signing out:', error);
@@ -86,8 +150,9 @@ class AuthService {
 
   async isAuthenticated(): Promise<boolean> {
     try {
+      const token = await AsyncStorage.getItem('authToken');
       const user = await AsyncStorage.getItem('user');
-      return !!user;
+      return !!(token && user);
     } catch {
       return false;
     }
@@ -112,30 +177,121 @@ class AuthService {
     }
   }
 
+  // 🔧 UPDATED: Forgot Password - POST /api/forgot-password
   async forgotPassword(email: string): Promise<void> {
     try {
       console.log('Initiating forgot password for:', email);
-      // TODO: Implement forgot password logic
-    } catch (error) {
+      
+      const response = await apiClient.post(
+        apiConfig.endpoints.forgotPassword,
+        { email }
+      );
+      
+      console.log('Forgot password request sent successfully');
+      // The backend should send an email with reset instructions
+    } catch (error: any) {
       console.error('Error initiating forgot password:', error);
-      throw error;
+      throw new Error(error.message || 'Failed to send password reset email. Please try again.');
     }
   }
 
+  // 🔧 UPDATED: Reset Password - POST /api/reset-password
   async forgotPasswordSubmit(email: string, code: string, newPassword: string): Promise<void> {
     try {
       console.log('Submitting new password for:', email);
-      // TODO: Implement password reset logic
-    } catch (error) {
+      
+      const response = await apiClient.post(
+        apiConfig.endpoints.resetPassword,
+        {
+          email,
+          code, // or token, depending on your backend
+          new_password: newPassword,
+        }
+      );
+      
+      console.log('Password reset successful');
+    } catch (error: any) {
       console.error('Error submitting new password:', error);
-      throw error;
+      throw new Error(error.message || 'Failed to reset password. Please check your reset code and try again.');
+    }
+  }
+
+  // 🔧 NEW: Delete User Account - DELETE /api/users/{id}
+  async deleteUserAccount(userId?: string): Promise<void> {
+    try {
+      const currentUser = await this.getCurrentUser();
+      const userIdToDelete = userId || currentUser?.id;
+      
+      if (!userIdToDelete) {
+        throw new Error('No user ID provided for deletion');
+      }
+      
+      console.log('Deleting user account:', userIdToDelete);
+      
+      const deleteUrl = apiClient.buildUrl(
+        apiConfig.endpoints.deleteUser,
+        { id: userIdToDelete }
+      );
+      
+      await apiClient.delete(deleteUrl);
+      
+      // Clear local data after successful deletion
+      await AsyncStorage.multiRemove(['authToken', 'accessToken', 'idToken', 'user']);
+      this.currentUser = null;
+      
+      console.log('User account deleted successfully');
+    } catch (error: any) {
+      console.error('Error deleting user account:', error);
+      throw new Error(error.message || 'Failed to delete user account. Please try again.');
+    }
+  }
+
+  // 🔧 NEW: Update User Profile - PUT /api/users/{id}
+  async updateUserProfile(updates: {
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+  }, userId?: string): Promise<User> {
+    try {
+      const currentUser = await this.getCurrentUser();
+      const userIdToUpdate = userId || currentUser?.id;
+      
+      if (!userIdToUpdate) {
+        throw new Error('No user ID provided for update');
+      }
+      
+      console.log('Updating user profile:', userIdToUpdate, updates);
+      
+      const updateUrl = apiClient.buildUrl(
+        apiConfig.endpoints.updateUser,
+        { id: userIdToUpdate }
+      );
+      
+      const response = await apiClient.put<BackendAuthResponse>(updateUrl, updates);
+      
+      // Transform backend response to your app's User format
+      const updatedUser: User = {
+        id: String(response.data.user.id),
+        email: response.data.user.email,
+        firstName: response.data.user.first_name || updates.first_name || currentUser?.firstName || '',
+        lastName: response.data.user.last_name || updates.last_name || currentUser?.lastName || '',
+      };
+
+      // Update stored user data
+      this.currentUser = updatedUser;
+      await this.storeSession(updatedUser);
+      
+      console.log('User profile updated successfully');
+      return updatedUser;
+    } catch (error: any) {
+      console.error('Error updating user profile:', error);
+      throw new Error(error.message || 'Failed to update profile. Please try again.');
     }
   }
 
   private async storeSession(user: User): Promise<void> {
     try {
       await AsyncStorage.setItem('user', JSON.stringify(user));
-      // TODO: Store actual session tokens when implemented
       console.log('Successfully stored user data');
     } catch (error) {
       console.error('Error storing session:', error);
@@ -150,10 +306,12 @@ class AuthService {
   async confirmSignUp(email: string, code: string): Promise<void> {
     try {
       console.log('Confirming sign up for:', email);
-      // TODO: Implement signup confirmation logic
+      // TODO: Implement signup confirmation logic if your backend requires it
+      // await apiClient.post('/auth/verify-email', { email, code });
+      throw new Error('Email verification functionality not yet implemented');
     } catch (error: any) {
       console.error('Error confirming sign up:', error);
-      throw new Error('Failed to confirm sign up. Please check your verification code and try again.');
+      throw new Error(error.message || 'Failed to confirm sign up. Please check your verification code and try again.');
     }
   }
 
@@ -161,9 +319,11 @@ class AuthService {
     try {
       console.log('Resending verification code to:', email);
       // TODO: Implement verification code resend logic
+      // await apiClient.post('/auth/resend-verification', { email });
+      throw new Error('Resend verification functionality not yet implemented');
     } catch (error: any) {
       console.error('Error resending verification code:', error);
-      throw new Error('Failed to resend verification code. Please try again.');
+      throw new Error(error.message || 'Failed to resend verification code. Please try again.');
     }
   }
 
@@ -171,31 +331,25 @@ class AuthService {
     try {
       console.log('Handling auth code:', code);
       // TODO: Implement OAuth code handling logic
-      // This would typically be used for OAuth flows like Google/Apple sign-in
+      throw new Error('OAuth code handling not yet implemented');
     } catch (error: any) {
       console.error('Error handling auth code:', error);
-      throw new Error('Failed to handle authentication code. Please try again.');
+      throw new Error(error.message || 'Failed to handle authentication code. Please try again.');
     }
   }
 
   async signInWithGoogle(): Promise<User> {
     try {
       console.log('Starting Google sign in process');
-      // TODO: Implement Google OAuth sign-in logic
-      // This is a placeholder implementation
-      const user: User = {
-        id: Math.random().toString(36).substring(7),
-        email: 'google-user@example.com',
-        firstName: 'Google',
-        lastName: 'User'
-      };
-
-      this.currentUser = user;
-      await this.storeSession(user);
-      return user;
+      // TODO: Implement Google OAuth sign-in logic with your backend
+      // This would typically involve:
+      // 1. Get Google OAuth token from the client
+      // 2. Send it to your backend for verification
+      // 3. Backend returns user data and JWT token
+      throw new Error('Google sign-in not yet implemented');
     } catch (error: any) {
       console.error('Error signing in with Google:', error);
-      throw new Error('Failed to sign in with Google. Please try again.');
+      throw new Error(error.message || 'Failed to sign in with Google. Please try again.');
     }
   }
 }
