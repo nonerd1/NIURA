@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
-    "main": "index.js",
     "newArchEnabled": false,
     "runtimeVersion": "1.0.0",
     "updates": {
@@ -19,7 +18,6 @@
       "supportsTablet": true,
       "bundleIdentifier": "io.niura.app",
       "buildNumber": "1",
-      "deploymentTarget": "15.1",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -92,7 +90,8 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-dev-client"
     ],
     "experiments": {
       "typedRoutes": true
@@ -100,8 +99,7 @@
     "extra": {
       "eas": {
         "projectId": "d2b21124-89a2-432c-badc-b1ebddaf268f"
-      },
-      "useHttps": true
+      }
     }
   }
 }

@@ -19,9 +19,10 @@ type MetricsGraphProps = {
   };
   type: 'focus' | 'stress';
   onPress?: () => void;
+  hideHeader?: boolean;
 };
 
-const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress }: MetricsGraphProps) => {
+const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress, hideHeader }: MetricsGraphProps) => {
   const screenWidth = Dimensions.get('window').width;
   const containerPadding = 16;
   const yAxisWidth = 35;
@@ -60,17 +61,19 @@ const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress }: 
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.lastUpdated}>Last updated {lastUpdated}</Text>
-        </View>
-        {status && (
-          <View style={styles.headerRight}>
-            <Text style={[styles.statusLevel, { color: datasets[0].color }]}>{status.level}</Text>
-            <Text style={[styles.statusValue, { color: datasets[0].color }]}>{status.value.toFixed(1)}</Text>
+      {!hideHeader && (
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.lastUpdated}>Last updated {lastUpdated}</Text>
           </View>
-        )}
-      </View>
+          {status && (
+            <View style={styles.headerRight}>
+              <Text style={[styles.statusLevel, { color: datasets[0].color }]}>{status.level}</Text>
+              <Text style={[styles.statusValue, { color: datasets[0].color }]}>{status.value.toFixed(1)}</Text>
+            </View>
+          )}
+        </View>
+      )}
       
       <View style={styles.chartWrapper}>
         <Pressable onPress={onPress} style={styles.chartContainer}>

@@ -1,22 +1,15 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
+
 const config = getDefaultConfig(__dirname);
 
-module.exports = {
-  ...config,
-  resolver: {
-    ...config.resolver
-  },
-  transformer: {
-    ...config.transformer
-  },
-  // Enable HTTPS for development server
-  server: {
-    protocol: 'https',
-    port: 8081,
-    host: '10.198.160.137',
-    enableVisualizer: true,
-    enhanceMiddleware: (middleware) => {
-      return middleware;
-    }
-  }
-}; 
+// Add support for path aliases
+config.resolver.alias = {
+  '@': path.resolve(__dirname, 'src'),
+  '@/components': path.resolve(__dirname, 'components'),
+  '@/constants': path.resolve(__dirname, 'constants'),
+  '@/hooks': path.resolve(__dirname, 'hooks'),
+  '@/assets': path.resolve(__dirname, 'assets'),
+};
+
+module.exports = config; 

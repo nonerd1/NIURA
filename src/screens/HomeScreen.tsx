@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, SafeAreaView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -158,6 +159,137 @@ const BrainIcon = ({ score, size = 48 }: { score: number; size?: number }) => {
   );
 };
 
+const RealTimeMetrics = ({ focusValue, stressValue }: { focusValue: number, stressValue: number }) => {
+  return (
+    <View style={styles.realTimeMetricsContainer}>
+      <Text style={styles.realTimeMetricsTitle}>Real-Time Metrics</Text>
+      
+      <SpeedometerMetrics
+        focusValue={focusValue}
+        stressValue={stressValue}
+        containerStyle={styles.speedometersContainer}
+      />
+    </View>
+  );
+};
+
+const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
+  focusData: MetricsData,
+  stressData: MetricsData,
+  focusValue: number,
+  stressValue: number
+}) => {
+  const navigation = useNavigation<NavigationProp>();
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12; // Convert to 12-hour format
+  const lastUpdated = `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+  
+  const getFocusLevel = (value: number) => {
+    if (value >= 2.5) return 'HIGH';
+    if (value >= 1.5) return 'MEDIUM';
+    return 'LOW';
+  };
+
+  // Generate today's hourly data for the chart
+  const generateTodaysData = () => {
+    const hours = [];
+    const focusData = [];
+    const stressData = [];
+    const currentHour = now.getHours();
+    
+    // Generate data for the last 6 hours
+    for (let i = 5; i >= 0; i--) {
+      const hour = (currentHour - i + 24) % 24;
+      const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      hours.push(`${hour12}${ampm}`);
+      
+      // Generate realistic focus data that trends toward current value
+      const baseFocusValue = focusValue;
+      const focusVariation = (Math.random() - 0.5) * 0.6; // ±0.3 variation
+      focusData.push(Math.max(0, Math.min(3, baseFocusValue + focusVariation)));
+      
+      // Generate realistic stress data that trends toward current value
+      const baseStressValue = stressValue;
+      const stressVariation = (Math.random() - 0.5) * 0.6; // ±0.3 variation
+      stressData.push(Math.max(0, Math.min(3, baseStressValue + stressVariation)));
+    }
+    
+    return { labels: hours, focusData, stressData };
+  };
+
+  const todaysData = generateTodaysData();
+
+  return (
+    <View style={styles.todaysMetricsContainer}>
+      <Text style={styles.todaysMetricsTitle}>Today's Metrics</Text>
+      
+      <View style={styles.chartHeader}>
+        <Text style={styles.lastUpdated}>Last updated {lastUpdated}</Text>
+        <View style={styles.currentValueContainer}>
+          <Text style={[styles.currentLevel, { color: '#4287f5' }]}>
+            {getFocusLevel(focusValue)} {focusValue.toFixed(1)}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.chartContainer}>
+        <MetricsGraph
+          labels={todaysData.labels}
+          datasets={[
+            {
+              data: todaysData.focusData,
+              color: '#4287f5',
+              label: 'Focus',
+            },
+            {
+              data: todaysData.stressData,
+              color: '#FFA500',
+              label: 'Stress',
+            },
+          ]}
+          type="focus"
+          hideHeader={true}
+          onPress={() => {
+            try {
+              navigation.navigate('DetailedMetrics', {
+                focusData: todaysData.focusData,
+                stressData: todaysData.stressData,
+                labels: todaysData.labels,
+                lastUpdated: lastUpdated,
+                focusLevel: getFocusLevel(focusValue),
+                focusValue: focusValue,
+                stressLevel: getFocusLevel(stressValue),
+                stressValue: stressValue,
+                focusColor: '#4287f5',
+                stressColor: '#FFA500',
+                mentalReadinessScore: 75,
+                mentalReadinessLevel: 'Good',
+                correlationData: {
+                  highFocusHighStress: 25,
+                  highFocusLowStress: 35,
+                  lowFocusHighStress: 15,
+                  lowFocusLowStress: 25
+                },
+                recommendations: [
+                  'Take regular breaks every 25 minutes',
+                  'Try deep breathing exercises',
+                  'Consider meditation sessions'
+                ]
+              });
+            } catch (error) {
+              console.error('Error navigating to detailed metrics:', error);
+            }
+          }}
+        />
+      </View>
+    </View>
+  );
+};
+
 const BestFocusTime = () => {
   return (
     <View style={styles.bestFocusContainer}>
@@ -302,7 +434,11 @@ const MentalReadinessHistory = () => {
   const navigation = useNavigation<NavigationProp>();
   const { labels, data } = generateWeeklyMentalReadiness();
   const now = new Date();
-  const lastUpdated = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`;
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12; // Convert to 12-hour format
+  const lastUpdated = `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
 
   const handlePress = () => {
     navigation.navigate('MentalReadinessDetails', {
@@ -333,43 +469,23 @@ const MentalReadinessHistory = () => {
           },
         ]}
         type="focus"
-        lastUpdated={lastUpdated}
-        status={{
-          level: getReadinessLevel(data[data.length - 1]),
-          value: data[data.length - 1]
-        }}
       />
     </Pressable>
   );
 };
 
-const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore, onPress }: {
+const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore }: {
   focusValue: number,
   stressValue: number, 
-  mentalReadinessScore: number,
-  onPress?: () => void
+  mentalReadinessScore: number
 }) => {
-  // Convert values to percentages (0-100)
-  const focus = Math.round((focusValue / 3) * 100);
-  const stress = Math.round((stressValue / 3) * 100);
-  const mental = Math.round(mentalReadinessScore);
-  
-  // Calculate ring dimensions
-  const ringSize = 70;
-  const strokeWidth = 5;
-  const radius = (ringSize - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  
-  // Calculate stroke dashoffset based on percentage
-  const getStrokeDashoffset = (percent: number) => {
-    return circumference - (circumference * percent) / 100;
-  };
-  
+  // Safe value conversion with fallbacks
+  const safeFocusValue = isNaN(focusValue) ? 1.5 : Math.max(0, Math.min(3, focusValue));
+  const safeStressValue = isNaN(stressValue) ? 1.5 : Math.max(0, Math.min(3, stressValue));
+  const safeMentalReadiness = isNaN(mentalReadinessScore) ? 75 : Math.max(0, Math.min(100, mentalReadinessScore));
+
   return (
-    <Pressable 
-      style={styles.metricsCardContainer}
-      onPress={onPress}
-    >
+    <View style={styles.metricsCardContainer}>
       <View style={styles.metricsLayout}>
         {/* Left side - Focus */}
         <View style={styles.metricColumn}>
@@ -377,7 +493,7 @@ const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore, onPres
             <AnimatedCircularProgress
               size={70}
               width={5}
-              fill={toPercentage(focusValue)}
+              fill={toPercentage(safeFocusValue)}
               tintColor="#4287f5"
               backgroundColor="#1E2A45"
               rotation={0}
@@ -388,7 +504,7 @@ const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore, onPres
               )}
             </AnimatedCircularProgress>
           </View>
-          <Text style={styles.metricValue}>{focusValue.toFixed(1)}</Text>
+          <Text style={styles.metricValue}>{safeFocusValue.toFixed(1)}</Text>
           <Text style={styles.metricLabel}>FOCUS</Text>
         </View>
         
@@ -398,14 +514,14 @@ const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore, onPres
             <AnimatedCircularProgress
               size={90}
               width={6}
-              fill={mentalReadinessScore}
+              fill={safeMentalReadiness}
               tintColor="#64B5F6"
               backgroundColor="#1E2A45"
               rotation={0}
               lineCap="round"
             >
               {() => (
-                <Text style={styles.mentalReadinessScore}>{mentalReadinessScore}%</Text>
+                <Text style={styles.mentalReadinessScore}>{safeMentalReadiness}%</Text>
               )}
             </AnimatedCircularProgress>
           </View>
@@ -418,7 +534,7 @@ const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore, onPres
             <AnimatedCircularProgress
               size={70}
               width={5}
-              fill={toPercentage(stressValue)}
+              fill={toPercentage(safeStressValue)}
               tintColor="#FFA500"
               backgroundColor="#1E2A45"
               rotation={0}
@@ -429,29 +545,9 @@ const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore, onPres
               )}
             </AnimatedCircularProgress>
           </View>
-          <Text style={styles.metricValue}>{stressValue.toFixed(1)}</Text>
+          <Text style={styles.metricValue}>{safeStressValue.toFixed(1)}</Text>
           <Text style={styles.metricLabel}>STRESS</Text>
         </View>
-      </View>
-    </Pressable>
-  );
-};
-
-const MetricsHeader = ({ focusValue, stressValue, mentalReadinessScore, onMetricsPress }: { 
-  focusValue: number, 
-  stressValue: number, 
-  mentalReadinessScore: number,
-  onMetricsPress: () => void
-}) => {
-  return (
-    <View style={styles.metricsHeader}>
-      <View style={styles.metricsContainer}>
-        <TriMetricVisual
-          focusValue={focusValue}
-          stressValue={stressValue}
-          mentalReadinessScore={mentalReadinessScore}
-          onPress={onMetricsPress}
-        />
       </View>
       
       <View style={styles.insightContainer}>
@@ -461,6 +557,20 @@ const MetricsHeader = ({ focusValue, stressValue, mentalReadinessScore, onMetric
         </Text>
       </View>
     </View>
+  );
+};
+
+const MetricsHeader = ({ focusValue, stressValue, mentalReadinessScore }: { 
+  focusValue: number, 
+  stressValue: number, 
+  mentalReadinessScore: number
+}) => {
+  return (
+    <TriMetricVisual
+      focusValue={focusValue}
+      stressValue={stressValue}
+      mentalReadinessScore={mentalReadinessScore}
+    />
   );
 };
 
@@ -545,45 +655,61 @@ const HomeScreen = () => {
   const [todayMetrics, setTodayMetrics] = useState<MetricDataPoint[]>([]);
   const isOnSimulator = isSimulator();
 
+  // Use either demo or BLE values with safe fallbacks
+  const currentFocusValue = demoMode ? (demoFocusValue ?? 1.5) : (bleFocusValue ?? 1.5);
+  const currentStressValue = demoMode ? (demoStressValue ?? 1.5) : (bleStressValue ?? 1.5);
+
   useEffect(() => {
     if (!demoMode && !isOnSimulator) {
-      connectToDevice();
+      try {
+        connectToDevice();
+      } catch (error) {
+        console.error('Error connecting to device:', error);
+      }
     }
   }, [demoMode, isOnSimulator]);
 
   useEffect(() => {
-    const currentValue = demoMode ? demoFocusValue : bleFocusValue;
-    if (currentValue !== undefined) {
-      const newData = [...focusData.data, currentValue];
-      const now = new Date();
-      const newLabel = `${now.getHours()}:${now.getMinutes()}`;
-      const newLabels = [...focusData.labels, newLabel];
-      
-      // Keep only last 10 data points
-      if (newData.length > 10) {
-        newData.shift();
-        newLabels.shift();
+    try {
+      const currentValue = demoMode ? demoFocusValue : bleFocusValue;
+      if (currentValue !== undefined) {
+        const newData = [...focusData.data, currentValue];
+        const now = new Date();
+        const newLabel = `${now.getHours()}:${now.getMinutes()}`;
+        const newLabels = [...focusData.labels, newLabel];
+        
+        // Keep only last 10 data points
+        if (newData.length > 10) {
+          newData.shift();
+          newLabels.shift();
+        }
+        
+        setFocusData({ data: newData, labels: newLabels });
       }
-      
-      setFocusData({ data: newData, labels: newLabels });
+    } catch (error) {
+      console.error('Error updating focus data:', error);
     }
   }, [demoMode ? demoFocusValue : bleFocusValue]);
 
   useEffect(() => {
-    const currentValue = demoMode ? demoStressValue : bleStressValue;
-    if (currentValue !== undefined) {
-      const newData = [...stressData.data, currentValue];
-      const now = new Date();
-      const newLabel = `${now.getHours()}:${now.getMinutes()}`;
-      const newLabels = [...stressData.labels, newLabel];
-      
-      // Keep only last 10 data points
-      if (newData.length > 10) {
-        newData.shift();
-        newLabels.shift();
+    try {
+      const currentValue = demoMode ? demoStressValue : bleStressValue;
+      if (currentValue !== undefined) {
+        const newData = [...stressData.data, currentValue];
+        const now = new Date();
+        const newLabel = `${now.getHours()}:${now.getMinutes()}`;
+        const newLabels = [...stressData.labels, newLabel];
+        
+        // Keep only last 10 data points
+        if (newData.length > 10) {
+          newData.shift();
+          newLabels.shift();
+        }
+        
+        setStressData({ data: newData, labels: newLabels });
       }
-      
-      setStressData({ data: newData, labels: newLabels });
+    } catch (error) {
+      console.error('Error updating stress data:', error);
     }
   }, [demoMode ? demoStressValue : bleStressValue]);
 
@@ -607,6 +733,7 @@ const HomeScreen = () => {
             });
           }
         } catch (error) {
+          // Silently handle database errors - don't crash the component
           console.error('Error storing metrics:', error);
         }
       }
@@ -616,12 +743,13 @@ const HomeScreen = () => {
   }, [demoMode, bleFocusValue, bleStressValue]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Welcome Back</Text>
-          <Text style={styles.subtitle}>Ready for your next session?</Text>
-        </View>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScrollView 
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        <Header />
 
         {bleError && (
           <View style={styles.errorContainer}>
@@ -629,26 +757,41 @@ const HomeScreen = () => {
           </View>
         )}
 
-        <View style={styles.metricsContainer}>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>Focus Score</Text>
-            <Text style={styles.metricValue}>{demoFocusValue ?? bleFocusValue ?? '-'}</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>Session Time</Text>
-            <Text style={styles.metricValue}>{demoStressValue ?? bleStressValue ?? '-'}</Text>
-          </View>
-        </View>
+        <MetricsHeader 
+          focusValue={currentFocusValue}
+          stressValue={currentStressValue}
+          mentalReadinessScore={mentalReadiness}
+        />
+
+        <RealTimeMetrics
+          focusValue={currentFocusValue}
+          stressValue={currentStressValue}
+        />
+
+        <TodaysMetrics
+          focusData={focusData}
+          stressData={stressData}
+          focusValue={currentFocusValue}
+          stressValue={currentStressValue}
+        />
+
+        <BestFocusTime />
+
+        <MoodMusic />
+
+        <Tasks />
+
+        <MentalReadinessHistory />
 
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={isConnected ? disconnectFromDevice : connectToDevice}
         >
           <Text style={styles.buttonText}>
-            {isConnected ? 'Disconnect' : 'Connect to Device'}
+            {isScanning ? 'Scanning...' : isConnected ? 'Disconnect Device' : 'Connect to Device'}
           </Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -661,6 +804,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
+    paddingTop: 5,
   },
   header: {
     marginBottom: 30,
@@ -729,7 +873,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.card,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   bestFocusHeader: {
     flexDirection: 'row',
@@ -765,7 +909,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.card,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   moodMusicHeader: {
     flexDirection: 'row',
@@ -806,6 +950,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.card,
     borderRadius: 12,
     padding: 16,
+    marginBottom: 24,
   },
   tasksHeader: {
     flexDirection: 'row',
@@ -854,7 +999,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.card,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   cardHeader: {
     marginBottom: 16,
@@ -874,26 +1019,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.card,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   metricsLayout: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 16,
   },
   metricColumn: {
     alignItems: 'center',
     flex: 1,
   },
-  metricsCircleContainer: {
-    marginBottom: 8,
-  },
   centerMetricColumn: {
     alignItems: 'center',
     flex: 1.5,
-  },
-  mentalReadinessCircleContainer: {
-    marginBottom: 8,
   },
   mentalReadinessScore: {
     fontSize: 20,
@@ -910,7 +1050,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   headerContent: {
     flexDirection: 'row',
@@ -934,16 +1074,76 @@ const styles = StyleSheet.create({
   insightContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.background.card,
+    backgroundColor: colors.background.dark,
     padding: 12,
     borderRadius: 8,
-    marginTop: 12,
+    marginTop: 16,
   },
   insightText: {
     flex: 1,
     fontSize: 14,
     color: colors.text.primary,
     marginLeft: 8,
+  },
+  scrollContent: {
+    paddingBottom: 20,
+    paddingTop: 10,
+  },
+  metricsCircleContainer: {
+    marginBottom: 8,
+  },
+  mentalReadinessCircleContainer: {
+    marginBottom: 8,
+  },
+  realTimeMetricsContainer: {
+    backgroundColor: colors.background.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  realTimeMetricsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.text.primary,
+    marginBottom: 12,
+  },
+  speedometersContainer: {
+    // Container style for SpeedometerMetrics component
+  },
+  todaysMetricsContainer: {
+    backgroundColor: colors.background.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  todaysMetricsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.text.primary,
+    marginBottom: 12,
+  },
+  chartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  lastUpdated: {
+    fontSize: 14,
+    color: colors.text.secondary,
+  },
+  currentValueContainer: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: colors.background.dark,
+  },
+  currentLevel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.text.primary,
+  },
+  chartContainer: {
+    marginBottom: 12,
   },
 });
 

@@ -23,6 +23,9 @@ export interface User {
   firstName: string;
   lastName: string;
   attributes?: Record<string, string>;
+  nextStep?: {
+    signUpStep: string;
+  };
 }
 
 class AuthService {
@@ -161,6 +164,38 @@ class AuthService {
     } catch (error: any) {
       console.error('Error resending verification code:', error);
       throw new Error('Failed to resend verification code. Please try again.');
+    }
+  }
+
+  async handleAuthCode(code: string): Promise<void> {
+    try {
+      console.log('Handling auth code:', code);
+      // TODO: Implement OAuth code handling logic
+      // This would typically be used for OAuth flows like Google/Apple sign-in
+    } catch (error: any) {
+      console.error('Error handling auth code:', error);
+      throw new Error('Failed to handle authentication code. Please try again.');
+    }
+  }
+
+  async signInWithGoogle(): Promise<User> {
+    try {
+      console.log('Starting Google sign in process');
+      // TODO: Implement Google OAuth sign-in logic
+      // This is a placeholder implementation
+      const user: User = {
+        id: Math.random().toString(36).substring(7),
+        email: 'google-user@example.com',
+        firstName: 'Google',
+        lastName: 'User'
+      };
+
+      this.currentUser = user;
+      await this.storeSession(user);
+      return user;
+    } catch (error: any) {
+      console.error('Error signing in with Google:', error);
+      throw new Error('Failed to sign in with Google. Please try again.');
     }
   }
 }
