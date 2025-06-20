@@ -1,0 +1,89 @@
+QUICK INSTALL GUIDE - From Zipped Project to iPhone
+===================================================
+
+PREREQUISITES:
+- Mac with Xcode already installed
+- iPhone with USB cable
+- Node.js installed (if not: download from nodejs.org)
+
+STEP-BY-STEP INSTALLATION:
+=========================
+
+1. EXTRACT PROJECT
+   - Unzip the NIURA project file
+   - Navigate to the extracted folder in Terminal:
+     cd /path/to/NIURA
+
+2. INSTALL DEPENDENCIES
+   - Install Node.js packages:
+     npm install
+   
+   - Install iOS dependencies:
+     cd ios
+     pod install
+     cd ..
+
+3. OPEN IN XCODE
+   - Open the iOS workspace (NOT the .xcodeproj file):
+     open ios/NIURA.xcworkspace
+   
+   - Wait for Xcode to finish indexing (this takes a few minutes)
+
+4. PREPARE YOUR IPHONE
+   - Connect iPhone to Mac via USB cable
+   - Unlock your iPhone
+   - If prompted, tap "Trust This Computer" on iPhone
+   - In Xcode, select your iPhone from the device dropdown (top-left)
+
+5. BUILD AND INSTALL
+   - In Xcode, click the Play button (▶) or press Cmd+R
+   - Xcode will build and install the app on your iPhone
+   - First build takes 5-15 minutes (subsequent builds are faster)
+
+6. TRUST DEVELOPER CERTIFICATE (If Required)
+   - If app doesn't open, go to iPhone Settings
+   - Navigate to: General > VPN & Device Management
+   - Find the developer profile and tap "Trust"
+
+7. START DEVELOPMENT SERVER (For Live Updates)
+   - In Terminal, run:
+     npx expo start --dev-client
+   
+   - The app on your iPhone will connect automatically
+   - Now any code changes will appear instantly on your phone
+
+TROUBLESHOOTING:
+===============
+
+BUILD ERRORS:
+- Clean build folder: Product > Clean Build Folder in Xcode
+- Try: rm -rf node_modules && npm install
+- Try: cd ios && pod install --repo-update && cd ..
+
+DEVICE NOT SHOWING:
+- Ensure iPhone is unlocked and trusted
+- Try unplugging and reconnecting USB cable
+- Restart Xcode
+
+APP WON'T OPEN:
+- Check iPhone Settings > General > VPN & Device Management
+- Trust the developer certificate
+
+METRO/EXPO ERRORS:
+- Clear cache: npx expo start --dev-client --clear
+- Restart Metro: kill any running expo processes and restart
+
+EXPECTED RESULT:
+===============
+✅ NIURA app installed as native app on iPhone
+✅ All features working (Bluetooth, navigation, etc.)
+✅ Hot reloading for instant code updates
+✅ Ready for development and testing
+
+TOTAL TIME: 15-30 minutes (mostly waiting for builds)
+
+WHAT YOU'LL SEE:
+- HomeScreen with focus/stress metrics
+- Real-time speedometer gauges
+- Bluetooth connection interface
+- All navigation working between screens 
