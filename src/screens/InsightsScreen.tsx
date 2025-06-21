@@ -52,17 +52,38 @@ const InsightsScreen = () => {
   };
 
   const loadAggregateData = async () => {
+    console.log('loadAggregateData starting for range:', selectedTimeRange);
     setIsLoadingAggregate(true);
     try {
       const data = await eegService.getEEGAggregate(selectedTimeRange);
+      console.log('Raw aggregate data received:', { 
+        hasData: !!data, 
+        dataLength: data?.data?.length,
+        range: data?.range 
+      });
+      
       const formattedData = eegService.formatAggregateForChart(data);
-      setAggregateData(formattedData);
+      console.log('Formatted data result:', { 
+        hasFormattedData: !!formattedData,
+        labelsCount: formattedData?.labels?.length 
+      });
+      
+      // If formatting failed (returned null), use dummy data instead of crashing
+      if (formattedData) {
+        console.log('Using formatted backend data for', selectedTimeRange);
+        setAggregateData(formattedData);
+      } else {
+        console.warn('Chart formatting failed, using dummy data for', selectedTimeRange);
+        setAggregateData(null); // This will trigger dummy data usage in getCurrentData
+      }
     } catch (error) {
       console.error('Error loading aggregate data:', error);
-      // Keep using dummy data on error
+      // Use dummy data on error
+      console.log('Setting aggregateData to null, will use dummy data');
       setAggregateData(null);
     } finally {
       setIsLoadingAggregate(false);
+      console.log('loadAggregateData completed for range:', selectedTimeRange);
     }
   };
 
@@ -101,17 +122,17 @@ const InsightsScreen = () => {
     legend: ["Focus", "Stress"]
   };
 
-  const yearlyData = {
-    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  const dailyData = {
+    labels: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"],
     datasets: [
       {
-        data: [1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.3, 2.1, 2.0, 1.9, 1.8, 2.0],
-        color: () => '#4287f5',
+        data: [1.2, 1.0, 2.3, 2.7, 2.1, 1.5],
+        color: () => '#4287f5', // Focus color
         strokeWidth: 2
       },
       {
-        data: [1.7, 1.6, 1.5, 1.4, 1.3, 1.2, 1.3, 1.5, 1.7, 1.8, 1.9, 1.7],
-        color: () => '#FFA500',
+        data: [2.1, 1.8, 1.0, 1.2, 1.6, 2.0],
+        color: () => '#FFA500', // Stress color
         strokeWidth: 2
       }
     ],
@@ -222,6 +243,7 @@ const InsightsScreen = () => {
   const getCurrentData = () => {
     // Use real aggregate data if available, otherwise fallback to dummy data
     if (aggregateData) {
+      console.log('Using real aggregate data for chart, range:', selectedTimeRange);
       return {
         labels: aggregateData.labels,
         datasets: [
@@ -240,8 +262,11 @@ const InsightsScreen = () => {
       };
     }
 
-    // Fallback to dummy data
+    // Fallback to dummy data based on selected time range
+    console.log('Using dummy data for chart, range:', selectedTimeRange);
     switch(selectedTimeRange) {
+      case 'daily':
+        return dailyData;
       case 'weekly':
         return weeklyData;
       case 'monthly':
@@ -304,14 +329,37 @@ const InsightsScreen = () => {
               </View>
             ) : (
               <>
-                <LineChart
-                  data={getCurrentData()}
-                  width={screenWidth - 40}
-                  height={220}
-                  chartConfig={chartConfig}
-                  bezier
-                  style={styles.chart}
-                />
+                {(() => {
+                  try {
+                    const chartData = getCurrentData();
+                    if (!chartData || !chartData.datasets || chartData.datasets.length === 0) {
+                      console.warn('Invalid chart data, using fallback');
+                      return (
+                        <View style={styles.loadingContainer}>
+                          <Text style={styles.loadingText}>Chart data unavailable</Text>
+                        </View>
+                      );
+                    }
+                    
+                    return (
+                      <LineChart
+                        data={chartData}
+                        width={screenWidth - 40}
+                        height={220}
+                        chartConfig={chartConfig}
+                        bezier
+                        style={styles.chart}
+                      />
+                    );
+                  } catch (error) {
+                    console.error('Chart rendering error:', error);
+                    return (
+                      <View style={styles.loadingContainer}>
+                        <Text style={styles.loadingText}>Chart temporarily unavailable</Text>
+                      </View>
+                    );
+                  }
+                })()}
                 <Text style={styles.chartCaption}>
                   {aggregateData 
                     ? `Real data (${aggregateData.totalSamples} samples)` 

@@ -96,32 +96,42 @@ class AuthService {
     try {
       console.log('Starting sign in process for:', email);
       
+      // Try form data instead of JSON
+      const formData = new FormData();
+      formData.append('username', email);
+      formData.append('password', password);
+      
       // Make API call to your backend - POST /api/login
-      const response = await apiClient.post<BackendAuthResponse>(
+      const response = await apiClient.post<{access_token: string, token_type: string}>(
         apiConfig.endpoints.login,
+        formData,
         {
-          email,
-          password,
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
         }
       );
 
-      // Transform backend response to your app's User format
-      const user: User = {
-        id: String(response.data.user.id),
-        email: response.data.user.email,
-        firstName: response.data.user.first_name || 'User',
-        lastName: response.data.user.last_name || '',
-      };
+      console.log('✅ Login successful! Token received');
 
-      // Store auth token if provided
-      const token = response.data.token || response.data.access_token;
+      // Store the access token
+      const token = response.data.access_token;
       if (token) {
         await AsyncStorage.setItem('authToken', token);
       }
 
+      // Create user object (we'll need to fetch user details separately later)
+      const user: User = {
+        id: '1', // Temporary - we'll get this from a separate API call later
+        email: email,
+        firstName: 'User', // Temporary - we'll get this from user profile API
+        lastName: '', // Temporary
+      };
+
       this.currentUser = user;
       await this.storeSession(user);
       
+      console.log('✅ User session stored successfully');
       return user;
     } catch (error: any) {
       console.error('Error signing in:', error);

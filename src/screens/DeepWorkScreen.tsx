@@ -208,8 +208,13 @@ const DeepWorkScreen = () => {
       try {
         const labels = await sessionService.getSessionLabels();
         setAvailableLabels(labels);
-      } catch (error) {
-        console.error('Error loading session labels:', error);
+      } catch (error: any) {
+        // Don't log or treat as error if it's the expected "Method Not Allowed" for session labels
+        if (error.message?.includes('Method Not Allowed')) {
+          console.log('Session labels endpoint only supports POST, using default labels');
+        } else {
+          console.error('Error loading session labels:', error);
+        }
         // Use default labels as fallback
         setAvailableLabels(sessionService.getDefaultLabels());
       }
@@ -914,7 +919,7 @@ const DeepWorkScreen = () => {
             )}
 
             {/* Error Display */}
-            {tasksError && (
+            {tasksError && !tasksError.includes('Method Not Allowed') && (
               <View style={styles.errorContainer}>
                 <MaterialCommunityIcons name="alert-circle" size={20} color="#FF6B6B" />
                 <Text style={styles.errorText}>{tasksError}</Text>

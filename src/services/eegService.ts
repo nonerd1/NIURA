@@ -140,17 +140,27 @@ class EEGService {
     try {
       console.log('Fetching current goals...');
       
-      const response = await apiClient.get<EEGApiResponse<Goal[]> | Goal[]>(
+      const response = await apiClient.get<any>(
         apiConfig.endpoints.getCurrentGoals
       );
       
-      // Handle different response formats
-      const goals = Array.isArray(response.data) 
-        ? response.data 
-        : (response.data as EEGApiResponse<Goal[]>).data;
+      // Transform backend response to frontend format
+      const backendGoals = response.data.goals || [];
+      const goals: Goal[] = backendGoals.map((backendGoal: any, index: number) => ({
+        id: backendGoal.id || index + 1, // Generate ID if not provided
+        title: backendGoal.name || backendGoal.title || 'Untitled Goal',
+        description: backendGoal.description || `Track your ${backendGoal.name || 'goal'} progress`,
+        target_value: backendGoal.target || backendGoal.target_value || 0,
+        current_value: backendGoal.current || backendGoal.current_value || 0,
+        progress: backendGoal.progress || (backendGoal.current && backendGoal.target ? 
+          Math.min(Math.max((backendGoal.current / backendGoal.target) * 100, 0), 100) : 0),
+        status: backendGoal.status || 'active',
+        created_at: backendGoal.created_at,
+        updated_at: backendGoal.updated_at
+      }));
       
       console.log('Current goals fetched successfully:', goals);
-      return goals || [];
+      return goals;
     } catch (error: any) {
       console.error('Error fetching current goals:', error);
       throw new Error(error.message || 'Failed to fetch current goals');
@@ -162,17 +172,24 @@ class EEGService {
     try {
       console.log('Fetching recommendations...');
       
-      const response = await apiClient.get<EEGApiResponse<Recommendation[]> | Recommendation[]>(
+      const response = await apiClient.get<any>(
         apiConfig.endpoints.getRecommendations
       );
       
-      // Handle different response formats
-      const recommendations = Array.isArray(response.data) 
-        ? response.data 
-        : (response.data as EEGApiResponse<Recommendation[]>).data;
+      // Transform backend response to frontend format
+      const backendRecommendations = response.data.recommendations || [];
+      const recommendations: Recommendation[] = backendRecommendations.map((backendRec: any, index: number) => ({
+        id: backendRec.id || index + 1, // Generate ID if not provided
+        title: backendRec.label || backendRec.title || 'Recommendation',
+        description: backendRec.description || 'No description available',
+        type: backendRec.type || 'general', // Default to general type
+        priority: backendRec.priority || 'medium', // Default to medium priority
+        action_items: backendRec.action_items || [],
+        created_at: backendRec.created_at
+      }));
       
       console.log('Recommendations fetched successfully:', recommendations);
-      return recommendations || [];
+      return recommendations;
     } catch (error: any) {
       console.error('Error fetching recommendations:', error);
       throw new Error(error.message || 'Failed to fetch recommendations');
@@ -184,17 +201,31 @@ class EEGService {
     try {
       console.log('Fetching music suggestions...');
       
-      const response = await apiClient.get<EEGApiResponse<MusicSuggestion[]> | MusicSuggestion[]>(
+      const response = await apiClient.get<any>(
         apiConfig.endpoints.getMusicSuggestion
       );
       
-      // Handle different response formats
-      const suggestions = Array.isArray(response.data) 
-        ? response.data 
-        : (response.data as EEGApiResponse<MusicSuggestion[]>).data;
+      // Transform backend response to frontend format
+      const backendData = response.data;
+      
+      // Backend returns single object, frontend expects array
+      const suggestion: MusicSuggestion = {
+        id: 1, // Generate ID since backend doesn't provide it
+        title: backendData.suggestion || 'Music Suggestion',
+        artist: 'Unknown Artist', // Backend doesn't provide artist
+        genre: 'Focus Music', // Default genre
+        mood: 'Concentration', // Default mood
+        duration: 180, // Default 3 minutes
+        spotify_url: undefined,
+        youtube_url: undefined,
+        preview_url: backendData.music_url || undefined,
+        recommended_for: 'focus' // Based on the suggestion type
+      };
+      
+      const suggestions = [suggestion]; // Convert to array
       
       console.log('Music suggestions fetched successfully:', suggestions);
-      return suggestions || [];
+      return suggestions;
     } catch (error: any) {
       console.error('Error fetching music suggestions:', error);
       throw new Error(error.message || 'Failed to fetch music suggestions');
@@ -206,14 +237,35 @@ class EEGService {
     try {
       console.log('Fetching best focus time...');
       
-      const response = await apiClient.get<EEGApiResponse<FocusTimeData> | FocusTimeData>(
+      const response = await apiClient.get<any>(
         apiConfig.endpoints.getBestFocusTime
       );
       
-      // Handle different response formats
-      const focusTimeData = 'best_time_start' in response.data 
-        ? response.data as FocusTimeData
-        : (response.data as EEGApiResponse<FocusTimeData>).data;
+      // Transform backend response to frontend format
+      const backendData = response.data;
+      
+      // Handle null values from backend
+      let focusTimeData: FocusTimeData;
+      
+      if (backendData.best_time_range && backendData.avg_focus) {
+        // If backend has data, use it
+        focusTimeData = {
+          best_time_start: backendData.best_time_range.start || '09:00',
+          best_time_end: backendData.best_time_range.end || '11:00',
+          focus_score: Math.round((backendData.avg_focus / 3) * 100), // Convert 0-3 scale to 0-100
+          confidence: 85, // Default confidence
+          day_of_week: backendData.day_of_week
+        };
+      } else {
+        // Fallback data when backend returns null
+        focusTimeData = {
+          best_time_start: '09:00',
+          best_time_end: '11:00',
+          focus_score: 75,
+          confidence: 50, // Lower confidence for fallback data
+          day_of_week: 'weekday'
+        };
+      }
       
       console.log('Best focus time fetched successfully:', focusTimeData);
       return focusTimeData;
@@ -228,14 +280,124 @@ class EEGService {
     try {
       console.log('Fetching EEG aggregate data for range:', range);
       
-      const response = await apiClient.get<EEGAggregateResponse>(
+      const response = await apiClient.get<any>(
         `${apiConfig.endpoints.eegAggregate}?range=${range}`
       );
       
-      console.log('EEG aggregate data fetched successfully:', response.data);
-      return response.data;
+      // Backend returns chart-ready format, not raw data format
+      // We need to transform it to match what the frontend expects
+      const backendData = response.data;
+      
+      // Check if backend returned chart format
+      if (backendData.datasets && backendData.labels) {
+        console.log('Backend returned chart format, transforming to raw data format...');
+        
+        // Extract focus and stress data from datasets
+        const focusDataset = backendData.datasets.find((d: any) => d.label === 'Focus');
+        const stressDataset = backendData.datasets.find((d: any) => d.label === 'Stress');
+        
+        // Transform to raw data format with proper timestamps
+        const now = new Date();
+        const transformedData: EEGAggregateDataPoint[] = backendData.labels.map((label: string, index: number) => {
+          let timestamp: string;
+          
+          // Generate proper ISO timestamps based on range and label
+          switch (range) {
+            case 'hourly':
+              // For hourly data like "09:00", "10:00", create timestamps for today
+              const hour = parseInt(label.split(':')[0]) || index;
+              const hourDate = new Date(now);
+              hourDate.setHours(hour, 0, 0, 0);
+              timestamp = hourDate.toISOString();
+              break;
+              
+            case 'daily':
+            case 'weekly':
+              // For daily/weekly data like "Mon", "Tue", create timestamps for past week
+              const daysAgo = 6 - index; // Start from 6 days ago
+              const dayDate = new Date(now);
+              dayDate.setDate(dayDate.getDate() - daysAgo);
+              dayDate.setHours(12, 0, 0, 0); // Set to noon for consistency
+              timestamp = dayDate.toISOString();
+              break;
+              
+            case 'monthly':
+              // For monthly data, create timestamps for past weeks/months
+              const weeksAgo = (3 - index) * 7; // 4 weeks back
+              const weekDate = new Date(now);
+              weekDate.setDate(weekDate.getDate() - weeksAgo);
+              weekDate.setHours(12, 0, 0, 0);
+              timestamp = weekDate.toISOString();
+              break;
+              
+            default:
+              // Fallback: use current time with index offset
+              const fallbackDate = new Date(now.getTime() - (index * 60 * 60 * 1000));
+              timestamp = fallbackDate.toISOString();
+          }
+          
+          return {
+            timestamp,
+            focus_avg: focusDataset?.data[index] || 0,
+            stress_avg: stressDataset?.data[index] || 0,
+            focus_max: focusDataset?.data[index] || 0,
+            stress_max: stressDataset?.data[index] || 0,
+            focus_min: focusDataset?.data[index] || 0,
+            stress_min: stressDataset?.data[index] || 0,
+            sample_count: 1,
+            quality_avg: 85
+          };
+        });
+        
+        const aggregateResponse: EEGAggregateResponse = {
+          range: range,
+          data: transformedData,
+          total_samples: transformedData.length,
+          start_date: transformedData[0]?.timestamp || now.toISOString(),
+          end_date: transformedData[transformedData.length - 1]?.timestamp || now.toISOString(),
+          timezone: 'UTC'
+        };
+        
+        console.log('EEG aggregate data transformed successfully:', aggregateResponse);
+        return aggregateResponse;
+      } else {
+        // If backend already returns raw format, use it directly
+        console.log('EEG aggregate data fetched successfully:', response.data);
+        return response.data;
+      }
     } catch (error: any) {
       console.error('Error fetching EEG aggregate data:', error);
+      
+      // Provide fallback data when backend fails (especially for daily range)
+      if (range === 'daily') {
+        console.warn('Daily aggregate data failed, providing fallback data');
+        const today = new Date();
+        const fallbackData: EEGAggregateDataPoint[] = Array.from({ length: 7 }, (_, i) => {
+          const date = new Date(today);
+          date.setDate(date.getDate() - (6 - i)); // Create dates for the past 7 days
+          return {
+            timestamp: date.toISOString(),
+            focus_avg: 0,
+            stress_avg: 0,
+            focus_max: 0,
+            stress_max: 0,
+            focus_min: 0,
+            stress_min: 0,
+            sample_count: 0,
+            quality_avg: 0
+          };
+        });
+        
+        return {
+          range: range,
+          data: fallbackData,
+          total_samples: 0,
+          start_date: new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+          end_date: today.toISOString(),
+          timezone: 'UTC'
+        };
+      }
+      
       throw new Error(error.message || 'Failed to fetch EEG aggregate data');
     }
   }
@@ -245,14 +407,21 @@ class EEGService {
     try {
       console.log('Fetching latest EEG data...');
       
-      const response = await apiClient.get<LatestEEGResponse | LatestEEGData>(
+      const response = await apiClient.get<any>(
         apiConfig.endpoints.getLatestEEG
       );
       
-      // Handle different response formats
-      const latestData = 'focus_value' in response.data 
-        ? response.data as LatestEEGData
-        : (response.data as LatestEEGResponse).data;
+      // Transform backend response to frontend format
+      const backendData = response.data;
+      const latestData: LatestEEGData = {
+        focus_value: backendData.focus_label || 0,
+        stress_value: backendData.stress_label || 0,
+        timestamp: backendData.timestamp || new Date().toISOString(),
+        session_id: backendData.session_id,
+        quality_score: backendData.quality_score,
+        device_id: backendData.device_id,
+        session_type: backendData.session_type
+      };
       
       console.log('Latest EEG data fetched successfully:', latestData);
       return latestData;
@@ -285,40 +454,79 @@ class EEGService {
 
   // Helper method to format aggregate data for charts
   formatAggregateForChart(aggregateData: EEGAggregateResponse) {
-    const labels = aggregateData.data.map(point => {
-      const date = new Date(point.timestamp);
-      
-      switch (aggregateData.range) {
-        case 'hourly':
-          return date.toLocaleTimeString('en-US', { 
-            hour: 'numeric', 
-            hour12: true 
-          });
-        case 'daily':
-          return date.toLocaleDateString('en-US', { 
-            weekday: 'short' 
-          });
-        case 'weekly':
-          return `Week ${Math.ceil(date.getDate() / 7)}`;
-        case 'monthly':
-          return date.toLocaleDateString('en-US', { 
-            month: 'short' 
-          });
-        default:
-          return point.timestamp;
-      }
+    console.log('formatAggregateForChart called with:', { 
+      hasData: !!aggregateData, 
+      dataLength: aggregateData?.data?.length,
+      range: aggregateData?.range,
+      sampleTimestamp: aggregateData?.data?.[0]?.timestamp 
     });
 
-    const focusData = aggregateData.data.map(point => point.focus_avg);
-    const stressData = aggregateData.data.map(point => point.stress_avg);
+    // Add null safety checks
+    if (!aggregateData || !aggregateData.data || !Array.isArray(aggregateData.data) || aggregateData.data.length === 0) {
+      console.warn('Invalid or empty aggregate data, using fallback');
+      return null;
+    }
 
-    return {
-      labels,
-      focusData,
-      stressData,
-      range: aggregateData.range,
-      totalSamples: aggregateData.total_samples
-    };
+    try {
+      let invalidTimestampCount = 0;
+      const labels = aggregateData.data.map(point => {
+        const date = new Date(point.timestamp);
+        
+        // Check if date is valid
+        if (isNaN(date.getTime())) {
+          invalidTimestampCount++;
+          // For invalid dates, just return the timestamp as-is
+          return point.timestamp;
+        }
+        
+        switch (aggregateData.range) {
+          case 'hourly':
+            return date.toLocaleTimeString('en-US', { 
+              hour: 'numeric', 
+              hour12: true 
+            });
+          case 'daily':
+            return date.toLocaleDateString('en-US', { 
+              weekday: 'short' 
+            });
+          case 'weekly':
+            return `Week ${Math.ceil(date.getDate() / 7)}`;
+          case 'monthly':
+            return date.toLocaleDateString('en-US', { 
+              month: 'short' 
+            });
+          default:
+            return point.timestamp;
+        }
+      });
+
+      if (invalidTimestampCount > 0) {
+        console.log(`Handled ${invalidTimestampCount} pre-formatted timestamps for ${aggregateData.range} range`);
+      }
+
+      const focusData = aggregateData.data.map(point => point.focus_avg);
+      const stressData = aggregateData.data.map(point => point.stress_avg);
+
+      const result = {
+        labels,
+        focusData,
+        stressData,
+        range: aggregateData.range,
+        totalSamples: aggregateData.total_samples
+      };
+
+      console.log('Chart formatting successful:', {
+        labelsCount: labels.length,
+        focusDataCount: focusData.length,
+        stressDataCount: stressData.length,
+        sampleLabels: labels.slice(0, 3)
+      });
+
+      return result;
+    } catch (error) {
+      console.error('Error in formatAggregateForChart:', error);
+      return null;
+    }
   }
 
   // Helper method to format latest EEG data for display

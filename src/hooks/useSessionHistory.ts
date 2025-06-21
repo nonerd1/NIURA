@@ -81,7 +81,19 @@ export const useSessionHistory = (initialFilters?: SessionHistoryFilters): UseSe
       console.log('Session history loaded successfully:', response);
     } catch (err: any) {
       console.error('Error loading session history:', err);
-      setError(err.message || 'Failed to load session history');
+      
+      // If the endpoint doesn't exist (404) or other backend issues, provide empty fallback
+      if (err.response?.status === 404 || err.message?.includes('Not Found') || 
+          err.response?.status === 500 || err.message?.includes('Internal Server Error')) {
+        console.warn('Session history endpoint not available, using empty fallback');
+        setSessions([]);
+        setCurrentPage(1);
+        setTotalPages(1);
+        setTotalCount(0);
+        setError(null); // Don't show error for missing endpoint
+      } else {
+        setError(err.message || 'Failed to load session history');
+      }
     } finally {
       setIsLoading(false);
       setIsLoadingMore(false);

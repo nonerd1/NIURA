@@ -4,7 +4,7 @@
 // API Configuration for NIURA Backend
 export const apiConfig = {
   // Base URL for your backend API
-  baseURL: 'http://127.0.0.1:8000/api',
+  baseURL: 'http://192.168.86.42:8000/api',
   
   // API endpoints (matching your backend exactly)
   endpoints: {

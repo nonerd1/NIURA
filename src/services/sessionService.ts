@@ -131,7 +131,16 @@ class SessionService {
       return labels || [];
     } catch (error: any) {
       console.error('Error fetching session labels:', error);
-      throw new Error(error.message || 'Failed to fetch session labels');
+      
+      // If backend doesn't support GET for session labels (only POST), provide fallback
+      if (error.response?.status === 405 || error.message?.includes('Method Not Allowed')) {
+        console.warn('Session labels endpoint only supports POST, providing default labels');
+        return this.getDefaultLabels();
+      }
+      
+      // For any other error, also provide default labels instead of throwing
+      console.warn('Session labels API failed, providing default labels');
+      return this.getDefaultLabels();
     }
   }
 

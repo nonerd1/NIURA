@@ -98,7 +98,23 @@ class ApiClient {
   private handleError(error: any): Error {
     if (error.response) {
       // Server responded with error status
-      const message = error.response.data?.message || error.response.data?.detail || 'An error occurred';
+      const data = error.response.data;
+      
+      // Handle FastAPI validation errors (array of error objects)
+      if (data?.detail && Array.isArray(data.detail)) {
+        const validationErrors = data.detail.map((err: any) => 
+          `${err.loc?.join('.')} - ${err.msg}`
+        ).join('; ');
+        return new Error(`Validation error: ${validationErrors}`);
+      }
+      
+      // Handle string detail messages
+      if (data?.detail && typeof data.detail === 'string') {
+        return new Error(data.detail);
+      }
+      
+      // Handle other error formats
+      const message = data?.message || data?.error || 'An error occurred';
       return new Error(message);
     } else if (error.request) {
       // Request was made but no response received
