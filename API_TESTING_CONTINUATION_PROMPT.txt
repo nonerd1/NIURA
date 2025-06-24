@@ -59,5 +59,3 @@ IMMEDIATE NEXT STEPS:
 5. Complete final endpoint testing
 
 Current working directory: /Users/ishaan/NIURA
-
-Please help me locate the backend code and fix the JWT validation issue so we can complete this systematic API testing! 

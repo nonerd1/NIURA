@@ -18,6 +18,7 @@ export interface Task {
   created_at: string;
   updated_at: string;
   completed_at?: string;
+  _backendId?: string | number; // Optional backend ID for operations
 }
 
 export interface CreateTaskRequest {
@@ -105,16 +106,57 @@ class TasksService {
     try {
       console.log('Creating task...', taskData);
       
+      // Transform frontend data to backend format
+      const backendData = {
+        label: taskData.title, // Backend expects 'label' instead of 'title'
+        description: taskData.description || taskData.title, // Backend requires description
+        priority: taskData.priority || 'medium',
+        category: taskData.category || 'work',
+        completed: false, // New tasks are always incomplete
+        due_date: taskData.due_date,
+        estimated_duration: taskData.estimated_duration,
+        session_id: taskData.session_id,
+        tags: taskData.tags,
+        notes: taskData.notes
+      };
+      
+      console.log('Sending to backend:', backendData);
+      
       const response = await apiClient.post<any>(
         apiConfig.endpoints.createTask,
-        {
-          ...taskData,
-          completed: false, // New tasks are always incomplete
-          priority: taskData.priority || 'medium'
-        }
+        backendData
       );
       
-      // Handle different response formats
+      console.log('Backend response:', response.data);
+      
+      // Handle the specific backend response format: {message: "Task added", task: id}
+      if (response.data && response.data.task && response.data.message === "Task added") {
+        // Backend returned just the ID, create a proper task object
+        const taskId = response.data.task;
+        const createdTask: Task = {
+          id: taskId.toString(), // Convert to string for consistency
+          title: taskData.title,
+          description: taskData.description || taskData.title,
+          completed: false,
+          priority: taskData.priority || 'medium',
+          category: taskData.category || 'work',
+          due_date: taskData.due_date,
+          estimated_duration: taskData.estimated_duration,
+          actual_duration: undefined,
+          session_id: taskData.session_id,
+          tags: taskData.tags || [],
+          notes: taskData.notes || '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          completed_at: undefined,
+          _backendId: taskId // Store the numeric backend ID
+        };
+        
+        console.log('Task created successfully:', createdTask);
+        return createdTask;
+      }
+      
+      // Handle other response formats (fallback)
       let task: Task;
       if (this.isTask(response.data)) {
         task = response.data;
@@ -123,14 +165,16 @@ class TasksService {
       } else if (this.hasTaskProperty(response.data)) {
         task = response.data.task;
       } else {
-        throw new Error('Invalid response format');
+        // Transform the response to match our Task interface
+        task = this.transformBackendTask(response.data);
       }
       
       console.log('Task created successfully:', task);
       return task;
     } catch (error: any) {
       console.error('Error creating task:', error);
-      throw new Error(error.message || 'Failed to create task');
+      console.error('Error response:', error.response?.data);
+      throw new Error(error.response?.data?.message || error.message || 'Failed to create task');
     }
   }
 
@@ -173,20 +217,85 @@ class TasksService {
   }
 
   // Delete Task - DELETE /api/tasks/{id}
-  async deleteTask(taskId: string): Promise<boolean> {
+  async deleteTask(taskId: string, task?: Task): Promise<boolean> {
     try {
       console.log('Deleting task...', taskId);
+      console.log('Task object:', task);
       
-      const endpoint = apiConfig.endpoints.deleteTask.replace('{id}', taskId);
+      let backendTaskId: string | number;
+      
+      // Priority 1: If we have the task object with _backendId, use it
+      if (task && task._backendId !== undefined && task._backendId !== null) {
+        backendTaskId = task._backendId;
+        console.log('Using backend ID from task object:', backendTaskId);
+      } 
+      // Priority 2: If taskId is numeric, use it directly
+      else if (!isNaN(Number(taskId))) {
+        backendTaskId = Number(taskId);
+        console.log('Using numeric task ID directly:', backendTaskId);
+      } 
+      // Priority 3: Check if this is a local-only task (no backend ID available)
+      else if (!task || task._backendId === undefined || task._backendId === null) {
+        console.warn('Cannot delete task - no backend ID available:', taskId);
+        throw new Error('This task exists only locally and cannot be deleted from the server.');
+      }
+      // Priority 4: Last resort - try to parse as number
+      else {
+        console.warn('Cannot determine backend ID for task:', taskId);
+        throw new Error('Cannot delete this task - unable to determine backend ID.');
+      }
+      
+      const endpoint = apiConfig.endpoints.deleteTask.replace('{id}', backendTaskId.toString());
+      console.log('Deleting from endpoint:', endpoint);
       
       const response = await apiClient.delete<DeleteTaskResponse>(endpoint);
       
-      console.log('Task deleted successfully');
+      console.log('Task deleted successfully from backend');
       return response.data.success;
     } catch (error: any) {
       console.error('Error deleting task:', error);
-      throw new Error(error.message || 'Failed to delete task');
+      console.error('Error response:', error.response?.data);
+      throw new Error(error.response?.data?.message || error.message || 'Failed to delete task');
     }
+  }
+
+  // Helper method to transform backend task data to frontend format
+  private transformBackendTask(backendTask: any): Task {
+    // Use the backend ID if it exists and is numeric, otherwise generate one
+    let id: string;
+    if (backendTask.id && !isNaN(Number(backendTask.id))) {
+      id = backendTask.id.toString();
+    } else if (backendTask.label) {
+      // For string-based tasks, create a more unique ID to avoid collisions
+      const timestamp = Date.now();
+      const randomSuffix = Math.random().toString(36).substr(2, 9);
+      id = `${backendTask.label}-${timestamp}-${randomSuffix}`;
+    } else {
+      // Generate completely unique ID for tasks without labels
+      const timestamp = Date.now();
+      const randomSuffix = Math.random().toString(36).substr(2, 9);
+      id = `task-${timestamp}-${randomSuffix}`;
+    }
+    
+    return {
+      id: id,
+      title: backendTask.label || backendTask.title || 'Untitled Task',
+      description: backendTask.description || '',
+      completed: backendTask.completed || false,
+      priority: backendTask.priority || 'medium',
+      category: backendTask.category || 'work',
+      due_date: backendTask.due_date,
+      estimated_duration: backendTask.estimated_duration,
+      actual_duration: backendTask.actual_duration,
+      session_id: backendTask.session_id,
+      tags: backendTask.tags || [],
+      notes: backendTask.notes || '',
+      created_at: backendTask.created_at || new Date().toISOString(),
+      updated_at: backendTask.updated_at || new Date().toISOString(),
+      completed_at: backendTask.completed_at,
+      // Store the original backend ID for operations if different from our ID
+      ...(backendTask.id && backendTask.id !== id && { _backendId: backendTask.id })
+    };
   }
 
   // Get Tasks - GET /api/tasks
@@ -211,12 +320,15 @@ class TasksService {
       const response = await apiClient.get<TasksResponse | Task[]>(url);
       
       // Handle different response formats
-      const tasks = Array.isArray(response.data) 
+      const rawTasks = Array.isArray(response.data) 
         ? response.data 
         : (response.data as TasksResponse).tasks;
       
-      console.log('Tasks fetched successfully:', tasks);
-      return tasks || [];
+      // Transform backend data to frontend format
+      const tasks = (rawTasks || []).map(task => this.transformBackendTask(task));
+      
+      console.log('Tasks fetched and transformed successfully:', tasks);
+      return tasks;
     } catch (error: any) {
       console.error('Error fetching tasks:', error);
       throw new Error(error.message || 'Failed to fetch tasks');

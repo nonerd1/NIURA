@@ -232,44 +232,44 @@ async function testAllEndpoints() {
     results['PUT Update Task'] = false;
     results['DELETE Delete Task'] = false;
   } else {
-    const taskCreateResult = await makeRequest('POST', '/tasks', {
-      label: 'Complete API Test',
-      description: 'Test all endpoints successfully'
-    });
-    results['POST Add Task'] = taskCreateResult.success;
-    if (taskCreateResult.success) {
-      successCount++;
-      // Extract task ID from response
-      if (taskCreateResult.data && taskCreateResult.data.task) {
-        createdTaskId = taskCreateResult.data.task;
+  const taskCreateResult = await makeRequest('POST', '/tasks', {
+    label: 'Complete API Test',
+    description: 'Test all endpoints successfully'
+  });
+  results['POST Add Task'] = taskCreateResult.success;
+  if (taskCreateResult.success) {
+    successCount++;
+    // Extract task ID from response
+    if (taskCreateResult.data && taskCreateResult.data.task) {
+      createdTaskId = taskCreateResult.data.task;
         console.log(`✅ Successfully created task with ID: ${createdTaskId}`);
-      }
     }
-    
-    // Test Task Update (only if we created one)
-    if (createdTaskId) {
+  }
+  
+  // Test Task Update (only if we created one)
+  if (createdTaskId) {
       // Add delay before update
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      console.log(`\n📝 PUT Update Task (ID: ${createdTaskId})`);
-      const taskUpdateResult = await makeRequest('PUT', `/tasks/${createdTaskId}`, {
-        label: 'Updated Task',
-        description: 'Updated description for API test'
-      });
-      results['PUT Update Task'] = taskUpdateResult.success;
-      if (taskUpdateResult.success) successCount++;
+    console.log(`\n📝 PUT Update Task (ID: ${createdTaskId})`);
+    const taskUpdateResult = await makeRequest('PUT', `/tasks/${createdTaskId}`, {
+      label: 'Updated Task',
+      description: 'Updated description for API test'
+    });
+    results['PUT Update Task'] = taskUpdateResult.success;
+    if (taskUpdateResult.success) successCount++;
       
       // Add delay before delete
       await new Promise(resolve => setTimeout(resolve, 500));
-      
-      console.log(`\n📝 DELETE Delete Task (ID: ${createdTaskId})`);
-      const taskDeleteResult = await makeRequest('DELETE', `/tasks/${createdTaskId}`);
-      results['DELETE Delete Task'] = taskDeleteResult.success;
-      if (taskDeleteResult.success) successCount++;
-    } else {
-      // Mark as failed if we couldn't create a task to test with
-      results['PUT Update Task'] = false;
-      results['DELETE Delete Task'] = false;
+    
+    console.log(`\n📝 DELETE Delete Task (ID: ${createdTaskId})`);
+    const taskDeleteResult = await makeRequest('DELETE', `/tasks/${createdTaskId}`);
+    results['DELETE Delete Task'] = taskDeleteResult.success;
+    if (taskDeleteResult.success) successCount++;
+  } else {
+    // Mark as failed if we couldn't create a task to test with
+    results['PUT Update Task'] = false;
+    results['DELETE Delete Task'] = false;
     }
   }
   

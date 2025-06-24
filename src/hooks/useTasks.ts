@@ -34,19 +34,15 @@ export const useTasks = (initialFilters?: TaskFilters): UseTasksReturn => {
 
   // Load tasks from backend
   const loadTasks = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      console.log('Loading tasks...', filters);
-      
       const tasksData = await tasksService.getTasks(filters);
       setTasks(tasksData);
-      
-      console.log('Tasks loaded successfully:', tasksData);
-    } catch (err: any) {
-      console.error('Error loading tasks:', err);
-      setError(err.message || 'Failed to load tasks');
+      setError(null);
+    } catch (error) {
+      console.error('Failed to load tasks:', error);
+      setError('Failed to load tasks. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -64,16 +60,58 @@ export const useTasks = (initialFilters?: TaskFilters): UseTasksReturn => {
       
       const newTask = await tasksService.createTask(taskData);
       
-      // Add to local state
-      setTasks(prev => [...prev, newTask]);
-      
-      return newTask;
+      // Validate the task has a proper ID before adding to state
+      if (newTask && newTask.id) {
+        // Check for duplicate IDs in current tasks
+        const existingTask = tasks.find(task => task.id === newTask.id);
+        if (existingTask) {
+          console.warn('Task with duplicate ID detected, generating new ID');
+          // Generate a new unique ID if there's a collision
+          newTask.id = `${newTask.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+        }
+        
+        // Add to local state
+        setTasks(prev => [...prev, newTask]);
+        
+        return newTask;
+      } else {
+        throw new Error('Created task is missing required ID');
+      }
     } catch (err: any) {
       console.error('Error creating task:', err);
       setError(err.message || 'Failed to create task');
+      
+      // If backend creation fails, create a local-only task for better UX
+      if (taskData.title.trim()) {
+        const localTask: Task = {
+          id: `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          title: taskData.title,
+          description: taskData.description || '',
+          completed: false,
+          priority: taskData.priority || 'medium',
+          category: taskData.category || 'work',
+          due_date: taskData.due_date,
+          estimated_duration: taskData.estimated_duration,
+          actual_duration: undefined,
+          session_id: taskData.session_id,
+          tags: taskData.tags || [],
+          notes: taskData.notes || '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          completed_at: undefined,
+          _backendId: undefined // Mark as local-only
+        };
+        
+        // Add local task to state
+        setTasks(prev => [...prev, localTask]);
+        
+        console.log('Created local-only task:', localTask);
+        return localTask;
+      }
+      
       return null;
     }
-  }, []);
+  }, [tasks]);
 
   // Update an existing task
   const updateTask = useCallback(async (taskData: UpdateTaskRequest): Promise<Task | null> => {
@@ -100,7 +138,19 @@ export const useTasks = (initialFilters?: TaskFilters): UseTasksReturn => {
     try {
       setError(null);
       
-      const success = await tasksService.deleteTask(taskId);
+      // Find the task object to get the backend ID
+      const taskToDelete = tasks.find(task => task.id === taskId);
+      
+      // Check if this is a local-only task
+      if (taskId.startsWith('local-')) {
+        // Local-only task - just remove from state
+        setTasks(prev => prev.filter(task => task.id !== taskId));
+        console.log('Deleted local-only task:', taskId);
+        return true;
+      }
+      
+      // Try to delete from backend, passing the task object for _backendId
+      const success = await tasksService.deleteTask(taskId, taskToDelete);
       
       if (success) {
         // Remove from local state
@@ -110,10 +160,19 @@ export const useTasks = (initialFilters?: TaskFilters): UseTasksReturn => {
       return success;
     } catch (err: any) {
       console.error('Error deleting task:', err);
+      
+      // If backend deletion fails but it's a task that exists locally, 
+      // still remove it from local state for better UX
+      if (err.message?.includes('locally generated') || err.message?.includes('cannot be deleted')) {
+        setTasks(prev => prev.filter(task => task.id !== taskId));
+        console.log('Removed task from local state due to backend limitation:', taskId);
+        return true;
+      }
+      
       setError(err.message || 'Failed to delete task');
       return false;
     }
-  }, []);
+  }, [tasks]);
 
   // Toggle task completion
   const toggleTaskCompletion = useCallback(async (taskId: string): Promise<boolean> => {

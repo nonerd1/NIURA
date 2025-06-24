@@ -56,7 +56,20 @@ export const useSession = (): UseSessionReturn => {
       const response = await sessionService.createSession(sessionData);
       
       if (response.success) {
-        setCurrentSession(response.session);
+        // Create a minimal session object for tracking
+        const session: SessionData = {
+          id: response.session_id,
+          name: sessionData.label,
+          session_type: 'focus', // Default since backend doesn't store this
+          status: 'active',
+          start_time: new Date().toISOString(),
+          planned_duration: sessionData.duration,
+          labels: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        
+        setCurrentSession(session);
         setIsSessionActive(true);
         setEegReadings([]);
         setSessionDuration(0);
@@ -72,7 +85,7 @@ export const useSession = (): UseSessionReturn => {
           }
         }, 1000);
         
-        console.log('Session started successfully:', response.session);
+        console.log('Session started successfully:', session);
         return true;
       } else {
         throw new Error(response.message || 'Failed to create session');

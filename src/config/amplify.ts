@@ -1,10 +1,25 @@
 // This file is kept as a placeholder for future authentication configuration
 // The AWS Amplify configuration has been removed as it's no longer needed
 
+import { Platform } from 'react-native';
+
+// Function to determine the correct base URL based on environment
+const getBaseURL = (): string => {
+  // For iOS Simulator, use localhost
+  if (Platform.OS === 'ios' && __DEV__) {
+    // Check if we're in iOS Simulator by trying to detect simulator-specific characteristics
+    // In iOS Simulator, we need to use localhost instead of the network IP
+    return 'http://localhost:8000/api';
+  }
+  
+  // For physical devices or Android, use the network IP
+  return 'http://192.168.86.42:8000/api';
+};
+
 // API Configuration for NIURA Backend
 export const apiConfig = {
-  // Base URL for your backend API
-  baseURL: 'http://192.168.86.42:8000/api',
+  // Base URL for your backend API - automatically detects environment
+  baseURL: getBaseURL(),
   
   // API endpoints (matching your backend exactly)
   endpoints: {

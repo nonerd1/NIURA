@@ -138,8 +138,6 @@ class EEGService {
   // Get Current Goals - GET /api/eeg/current-goals
   async getCurrentGoals(): Promise<Goal[]> {
     try {
-      console.log('Fetching current goals...');
-      
       const response = await apiClient.get<any>(
         apiConfig.endpoints.getCurrentGoals
       );
@@ -159,10 +157,8 @@ class EEGService {
         updated_at: backendGoal.updated_at
       }));
       
-      console.log('Current goals fetched successfully:', goals);
       return goals;
     } catch (error: any) {
-      console.error('Error fetching current goals:', error);
       throw new Error(error.message || 'Failed to fetch current goals');
     }
   }
@@ -170,8 +166,6 @@ class EEGService {
   // Get Recommendations - GET /api/eeg/recommendations
   async getRecommendations(): Promise<Recommendation[]> {
     try {
-      console.log('Fetching recommendations...');
-      
       const response = await apiClient.get<any>(
         apiConfig.endpoints.getRecommendations
       );
@@ -188,10 +182,8 @@ class EEGService {
         created_at: backendRec.created_at
       }));
       
-      console.log('Recommendations fetched successfully:', recommendations);
       return recommendations;
     } catch (error: any) {
-      console.error('Error fetching recommendations:', error);
       throw new Error(error.message || 'Failed to fetch recommendations');
     }
   }
@@ -199,8 +191,6 @@ class EEGService {
   // Get Music Suggestion - GET /api/eeg/music-suggestion
   async getMusicSuggestion(): Promise<MusicSuggestion[]> {
     try {
-      console.log('Fetching music suggestions...');
-      
       const response = await apiClient.get<any>(
         apiConfig.endpoints.getMusicSuggestion
       );
@@ -224,10 +214,8 @@ class EEGService {
       
       const suggestions = [suggestion]; // Convert to array
       
-      console.log('Music suggestions fetched successfully:', suggestions);
       return suggestions;
     } catch (error: any) {
-      console.error('Error fetching music suggestions:', error);
       throw new Error(error.message || 'Failed to fetch music suggestions');
     }
   }
@@ -235,8 +223,6 @@ class EEGService {
   // Get Best Focus Time - GET /api/eeg/best-focus-time
   async getBestFocusTime(): Promise<FocusTimeData> {
     try {
-      console.log('Fetching best focus time...');
-      
       const response = await apiClient.get<any>(
         apiConfig.endpoints.getBestFocusTime
       );
@@ -267,10 +253,8 @@ class EEGService {
         };
       }
       
-      console.log('Best focus time fetched successfully:', focusTimeData);
       return focusTimeData;
     } catch (error: any) {
-      console.error('Error fetching best focus time:', error);
       throw new Error(error.message || 'Failed to fetch best focus time');
     }
   }
@@ -278,8 +262,6 @@ class EEGService {
   // Get EEG Aggregate Data - GET /api/eeg/aggregate?range={range}
   async getEEGAggregate(range: AggregateRange = 'hourly'): Promise<EEGAggregateResponse> {
     try {
-      console.log('Fetching EEG aggregate data for range:', range);
-      
       const response = await apiClient.get<any>(
         `${apiConfig.endpoints.eegAggregate}?range=${range}`
       );
@@ -290,8 +272,6 @@ class EEGService {
       
       // Check if backend returned chart format
       if (backendData.datasets && backendData.labels) {
-        console.log('Backend returned chart format, transforming to raw data format...');
-        
         // Extract focus and stress data from datasets
         const focusDataset = backendData.datasets.find((d: any) => d.label === 'Focus');
         const stressDataset = backendData.datasets.find((d: any) => d.label === 'Stress');
@@ -358,19 +338,14 @@ class EEGService {
           timezone: 'UTC'
         };
         
-        console.log('EEG aggregate data transformed successfully:', aggregateResponse);
         return aggregateResponse;
       } else {
         // If backend already returns raw format, use it directly
-        console.log('EEG aggregate data fetched successfully:', response.data);
         return response.data;
       }
     } catch (error: any) {
-      console.error('Error fetching EEG aggregate data:', error);
-      
       // Provide fallback data when backend fails (especially for daily range)
       if (range === 'daily') {
-        console.warn('Daily aggregate data failed, providing fallback data');
         const today = new Date();
         const fallbackData: EEGAggregateDataPoint[] = Array.from({ length: 7 }, (_, i) => {
           const date = new Date(today);
@@ -405,8 +380,6 @@ class EEGService {
   // Get Latest EEG Data - GET /api/eeg/latest
   async getLatestEEG(): Promise<LatestEEGData> {
     try {
-      console.log('Fetching latest EEG data...');
-      
       const response = await apiClient.get<any>(
         apiConfig.endpoints.getLatestEEG
       );
@@ -423,47 +396,38 @@ class EEGService {
         session_type: backendData.session_type
       };
       
-      console.log('Latest EEG data fetched successfully:', latestData);
       return latestData;
     } catch (error: any) {
-      console.error('Error fetching latest EEG data:', error);
-      throw new Error(error.message || 'Failed to fetch latest EEG data');
+      // Check if this is a "no data" error (expected for new users)
+      const isNoDataError = error.message?.includes('No EEG record found') || 
+                           error.message?.includes('not found') ||
+                           error.status === 404;
+      
+      if (isNoDataError) {
+        throw new Error('No EEG record found for this user');
+      } else {
+        throw new Error(error.message || 'Failed to fetch latest EEG data');
+      }
     }
   }
 
   // Bulk EEG Upload - POST /api/eeg/bulk
   async uploadBulkEEGData(uploadData: BulkEEGUploadRequest): Promise<BulkEEGUploadResponse> {
     try {
-      console.log('Uploading bulk EEG data...', {
-        readingsCount: uploadData.readings.length,
-        sessionId: uploadData.session_metadata?.session_id
-      });
-      
       const response = await apiClient.post<BulkEEGUploadResponse>(
         apiConfig.endpoints.bulkEegUpload,
         uploadData
       );
       
-      console.log('Bulk EEG data uploaded successfully:', response.data);
       return response.data;
     } catch (error: any) {
-      console.error('Error uploading bulk EEG data:', error);
       throw new Error(error.message || 'Failed to upload EEG data');
     }
   }
 
   // Helper method to format aggregate data for charts
   formatAggregateForChart(aggregateData: EEGAggregateResponse) {
-    console.log('formatAggregateForChart called with:', { 
-      hasData: !!aggregateData, 
-      dataLength: aggregateData?.data?.length,
-      range: aggregateData?.range,
-      sampleTimestamp: aggregateData?.data?.[0]?.timestamp 
-    });
-
-    // Add null safety checks
     if (!aggregateData || !aggregateData.data || !Array.isArray(aggregateData.data) || aggregateData.data.length === 0) {
-      console.warn('Invalid or empty aggregate data, using fallback');
       return null;
     }
 
@@ -515,16 +479,8 @@ class EEGService {
         totalSamples: aggregateData.total_samples
       };
 
-      console.log('Chart formatting successful:', {
-        labelsCount: labels.length,
-        focusDataCount: focusData.length,
-        stressDataCount: stressData.length,
-        sampleLabels: labels.slice(0, 3)
-      });
-
       return result;
     } catch (error) {
-      console.error('Error in formatAggregateForChart:', error);
       return null;
     }
   }
@@ -580,7 +536,14 @@ class EEGService {
         timeAgo: formatted.timeAgoText,
         isRecent: formatted.isRecent
       };
-    } catch (error) {
+    } catch (error: any) {
+      // Check if this is expected "no data" for new users
+      const isNoDataError = error.message?.includes('No EEG record found');
+      
+      if (isNoDataError) {
+        console.log('Loaded fallback EEG data: New user with no historical data');
+      }
+      
       // Final fallback to default values
       return {
         focusValue: 1.5,

@@ -13,6 +13,7 @@ import {
   StatusBar,
   SafeAreaView,
 } from 'react-native';
+import RNPickerSelect from 'react-native-picker-select';
 import { authService } from '../services/auth';
 
 interface RegisterScreenProps {
@@ -24,11 +25,12 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [gender, setGender] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const handleRegister = async () => {
-    if (!firstName || !lastName || !email || !password) {
+    if (!firstName || !lastName || !email || !password || !gender) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
@@ -40,6 +42,7 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
         password,
         firstName,
         lastName,
+        gender,
       });
       
       // Check if verification is needed
@@ -137,6 +140,29 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
                   onChangeText={setPassword}
                   secureTextEntry
                 />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Gender</Text>
+                <View style={styles.pickerContainer}>
+                  <RNPickerSelect
+                    placeholder={{
+                      label: 'Select Gender',
+                      value: null,
+                      color: '#666666',
+                    }}
+                    items={[
+                      { label: 'Male', value: 'male' },
+                      { label: 'Female', value: 'female' },
+                      { label: 'Other', value: 'other' },
+                      { label: 'Prefer not to say', value: 'prefer_not_to_say' },
+                    ]}
+                    onValueChange={(value) => setGender(value || '')}
+                    style={pickerSelectStyles}
+                    value={gender}
+                    useNativeAndroidPickerStyle={false}
+                  />
+                </View>
               </View>
 
               <TouchableOpacity
@@ -280,6 +306,35 @@ const styles = StyleSheet.create({
     color: '#AAAAAA',
     paddingHorizontal: 10,
     fontSize: 14,
+  },
+  pickerContainer: {
+    backgroundColor: 'transparent',
+    borderRadius: 5,
+  },
+});
+
+const pickerSelectStyles = StyleSheet.create({
+  inputIOS: {
+    fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#3A4452',
+    borderRadius: 4,
+    color: '#FFFFFF',
+    paddingRight: 30, // to ensure the text is never behind the icon
+    backgroundColor: '#2A3442',
+  },
+  inputAndroid: {
+    fontSize: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#3A4452',
+    borderRadius: 8,
+    color: '#FFFFFF',
+    paddingRight: 30, // to ensure the text is never behind the icon
+    backgroundColor: '#2A3442',
   },
 });
 

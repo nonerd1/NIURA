@@ -12,19 +12,15 @@ export interface SessionLabel {
 }
 
 export interface CreateSessionRequest {
-  name: string;
-  session_type: 'focus' | 'meditation' | 'study' | 'break' | 'custom';
-  planned_duration?: number; // in minutes
-  labels?: string[]; // Array of label IDs or names
-  goals?: string[]; // Session goals
-  notes?: string;
+  date: string; // ISO string
+  duration: number; // in minutes
+  label: string;
 }
 
 export interface CreateSessionResponse {
   success: boolean;
   session_id: string;
   message?: string;
-  session: SessionData;
 }
 
 export interface SessionData {
@@ -93,8 +89,6 @@ class SessionService {
   // Create Session Labels - POST /api/eeg/session-labels
   async createSessionLabel(labelData: CreateSessionLabelRequest): Promise<SessionLabel> {
     try {
-      console.log('Creating session label...', labelData);
-      
       const response = await apiClient.post<SessionApiResponse<SessionLabel> | SessionLabel>(
         apiConfig.endpoints.sessionLabels,
         labelData
@@ -105,7 +99,6 @@ class SessionService {
         ? response.data as SessionLabel
         : (response.data as SessionApiResponse<SessionLabel>).data;
       
-      console.log('Session label created successfully:', label);
       return label;
     } catch (error: any) {
       console.error('Error creating session label:', error);
@@ -113,33 +106,28 @@ class SessionService {
     }
   }
 
-  // Get Session Labels - GET /api/eeg/session-labels (assuming this exists)
+  // Get Session Labels - Return default labels since backend only supports POST for session-labels
   async getSessionLabels(): Promise<SessionLabel[]> {
     try {
-      console.log('Fetching session labels...');
+      // Backend /eeg/session-labels only supports POST (for creating labels from EEG data)
+      // For now, return default labels until a GET endpoint is implemented
+      return this.getDefaultLabels();
       
+      // TODO: Once backend implements GET /api/session-labels, uncomment below:
+      /*
       const response = await apiClient.get<SessionLabelsResponse | SessionLabel[]>(
         apiConfig.endpoints.sessionLabels
       );
       
-      // Handle different response formats
       const labels = Array.isArray(response.data) 
         ? response.data 
         : (response.data as SessionLabelsResponse).labels;
       
       console.log('Session labels fetched successfully:', labels);
       return labels || [];
+      */
     } catch (error: any) {
       console.error('Error fetching session labels:', error);
-      
-      // If backend doesn't support GET for session labels (only POST), provide fallback
-      if (error.response?.status === 405 || error.message?.includes('Method Not Allowed')) {
-        console.warn('Session labels endpoint only supports POST, providing default labels');
-        return this.getDefaultLabels();
-      }
-      
-      // For any other error, also provide default labels instead of throwing
-      console.warn('Session labels API failed, providing default labels');
       return this.getDefaultLabels();
     }
   }
@@ -147,26 +135,30 @@ class SessionService {
   // Create Session - POST /api/sessions/create
   async createSession(sessionData: CreateSessionRequest): Promise<CreateSessionResponse> {
     try {
-      console.log('Creating new session...', sessionData);
-      
-      const response = await apiClient.post<CreateSessionResponse>(
+      const response = await apiClient.post<{message: string, session_id: number}>(
         apiConfig.endpoints.createSession,
         sessionData
       );
       
-      console.log('Session created successfully:', response.data);
-      return response.data;
+      // Transform backend response to frontend format
+      return {
+        success: true,
+        session_id: response.data.session_id.toString(),
+        message: response.data.message
+      };
     } catch (error: any) {
       console.error('Error creating session:', error);
-      throw new Error(error.message || 'Failed to create session');
+      return {
+        success: false,
+        session_id: '',
+        message: error.message || 'Failed to create session'
+      };
     }
   }
 
   // Get Session History - GET /api/sessions/history
   async getSessionHistory(filters?: SessionHistoryFilters): Promise<SessionHistoryResponse> {
     try {
-      console.log('Fetching session history...', filters);
-      
       // Build query string from filters
       const queryParams = new URLSearchParams();
       if (filters) {
@@ -187,7 +179,6 @@ class SessionService {
       
       const response = await apiClient.get<SessionHistoryResponse>(url);
       
-      console.log('Session history fetched successfully:', response.data);
       return response.data;
     } catch (error: any) {
       console.error('Error fetching session history:', error);

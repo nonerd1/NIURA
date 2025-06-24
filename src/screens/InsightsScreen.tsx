@@ -52,38 +52,24 @@ const InsightsScreen = () => {
   };
 
   const loadAggregateData = async () => {
-    console.log('loadAggregateData starting for range:', selectedTimeRange);
     setIsLoadingAggregate(true);
     try {
       const data = await eegService.getEEGAggregate(selectedTimeRange);
-      console.log('Raw aggregate data received:', { 
-        hasData: !!data, 
-        dataLength: data?.data?.length,
-        range: data?.range 
-      });
       
       const formattedData = eegService.formatAggregateForChart(data);
-      console.log('Formatted data result:', { 
-        hasFormattedData: !!formattedData,
-        labelsCount: formattedData?.labels?.length 
-      });
       
       // If formatting failed (returned null), use dummy data instead of crashing
       if (formattedData) {
-        console.log('Using formatted backend data for', selectedTimeRange);
         setAggregateData(formattedData);
       } else {
-        console.warn('Chart formatting failed, using dummy data for', selectedTimeRange);
         setAggregateData(null); // This will trigger dummy data usage in getCurrentData
       }
     } catch (error) {
       console.error('Error loading aggregate data:', error);
       // Use dummy data on error
-      console.log('Setting aggregateData to null, will use dummy data');
       setAggregateData(null);
     } finally {
       setIsLoadingAggregate(false);
-      console.log('loadAggregateData completed for range:', selectedTimeRange);
     }
   };
 

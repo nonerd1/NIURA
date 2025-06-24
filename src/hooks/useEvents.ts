@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { eventsService, Event, CreateEventRequest, UpdateEventRequest, EventFilters } from '../services/eventsService';
+import { eventsService, Event, CreateEventRequest, BackendEventCreate, UpdateEventRequest, EventFilters } from '../services/eventsService';
 
 interface UseEventsReturn {
   // Data
@@ -7,7 +7,7 @@ interface UseEventsReturn {
   todaysEvents: Event[];
   
   // Actions
-  createEvent: (eventData: CreateEventRequest) => Promise<Event | null>;
+  createEvent: (eventData: CreateEventRequest | BackendEventCreate) => Promise<Event | null>;
   updateEvent: (eventData: UpdateEventRequest) => Promise<Event | null>;
   deleteEvent: (eventId: string) => Promise<boolean>;
   refreshEvents: () => Promise<void>;
@@ -30,19 +30,15 @@ export const useEvents = (initialFilters?: EventFilters): UseEventsReturn => {
 
   // Load events from backend
   const loadEvents = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      console.log('Loading events...', filters);
-      
       const eventsData = await eventsService.getEvents(filters);
       setEvents(eventsData);
-      
-      console.log('Events loaded successfully:', eventsData);
-    } catch (err: any) {
-      console.error('Error loading events:', err);
-      setError(err.message || 'Failed to load events');
+      setError(null);
+    } catch (error) {
+      console.error('Failed to load events:', error);
+      setError('Failed to load events. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -54,7 +50,7 @@ export const useEvents = (initialFilters?: EventFilters): UseEventsReturn => {
   }, [loadEvents]);
 
   // Create a new event
-  const createEvent = useCallback(async (eventData: CreateEventRequest): Promise<Event | null> => {
+  const createEvent = useCallback(async (eventData: CreateEventRequest | BackendEventCreate): Promise<Event | null> => {
     try {
       setError(null);
       
@@ -96,20 +92,38 @@ export const useEvents = (initialFilters?: EventFilters): UseEventsReturn => {
     try {
       setError(null);
       
-      const success = await eventsService.deleteEvent(eventId);
+      // Check if event still exists in local state
+      const eventToDelete = events.find(event => event.id === eventId);
+      if (!eventToDelete) {
+        console.log('Event already deleted from local state:', eventId);
+        return true; // Consider it successful if already gone
+      }
+      
+      const success = await eventsService.deleteEvent(eventId, eventToDelete);
       
       if (success) {
         // Remove from local state
         setEvents(prev => prev.filter(event => event.id !== eventId));
+        return true;
       }
       
-      return success;
+      return false;
     } catch (err: any) {
       console.error('Error deleting event:', err);
+      
+      // If the error is "Event not found" (404), consider it successful since it's already gone
+      if (err.message && (err.message.includes('Event not found') || err.message.includes('404'))) {
+        console.log('Event was already deleted from backend, removing from local state');
+        setEvents(prev => prev.filter(event => event.id !== eventId));
+        // Don't set error state for 404 errors since we treat them as successful
+        return true;
+      }
+      
+      // Only set error state for genuine failures (not 404s)
       setError(err.message || 'Failed to delete event');
       return false;
     }
-  }, []);
+  }, [events]);
 
   // Refresh events
   const refreshEvents = useCallback(async () => {

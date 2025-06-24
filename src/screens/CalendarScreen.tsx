@@ -18,7 +18,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart, ProgressChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
 import { useEvents } from '../hooks/useEvents';
-import { eventsService, Event, CreateEventRequest } from '../services/eventsService';
+import { eventsService, Event, CreateEventRequest, BackendEventCreate } from '../services/eventsService';
+import { notificationService } from '../services/notificationService';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -187,25 +188,77 @@ const CalendarScreen = () => {
   const handleAddEvent = async () => {
     if (newEvent.title && newEvent.date && newEvent.time) {
       try {
-        const eventData: CreateEventRequest = {
-          title: newEvent.title || '',
-          date: newEvent.date || selectedDate,
-          time: newEvent.time || '',
-          duration: newEvent.duration || '30 min',
+        // Convert duration to turnaround_time in minutes
+        const durationInMinutes = eventsService.parseDuration(newEvent.duration || '30 min');
+        
+        // Create proper datetime by combining date and time
+        const eventDate = newEvent.date || selectedDate;
+        const eventTime = newEvent.time || '12:00';
+        const combinedDateTime = new Date(`${eventDate}T${eventTime}:00`);
+        
+        // Create event data that matches backend schema
+        const eventData = {
+          date: combinedDateTime.toISOString(),
           type: newEvent.type || 'custom',
-          reminder: newEvent.reminder !== undefined ? newEvent.reminder : true,
-          description: newEvent.description,
-          location: newEvent.location,
-          notes: newEvent.notes,
-          color: eventsService.getEventTypeColor(newEvent.type || 'custom'),
-          recurring: newEvent.recurring || false,
-          recurring_pattern: newEvent.recurring_pattern,
-          all_day: newEvent.all_day || false
+          turnaround_time: durationInMinutes,
+          reminder: newEvent.reminder !== undefined ? newEvent.reminder : true
         };
         
-        const createdEvent = await createEvent(eventData);
+        console.log('Creating event...', eventData);
+        
+        const createdEvent = await createEvent(eventData as BackendEventCreate);
         
         if (createdEvent) {
+          // Handle notifications if reminder is enabled
+          if (newEvent.reminder) {
+            try {
+              // Check if we have notification permissions
+              const hasPermission = await notificationService.checkPermissions();
+              
+              if (!hasPermission) {
+                // Request permissions for the first time
+                const permissionResult = await notificationService.requestPermissions();
+                
+                if (permissionResult.granted) {
+                  // Schedule the notification
+                  const notificationId = await notificationService.scheduleEventNotification(createdEvent);
+                  if (notificationId) {
+                    Alert.alert(
+                      'Event Created!', 
+                      `Your ${createdEvent.title} has been scheduled with a reminder at ${eventsService.formatEventTime(createdEvent.time)}.`
+                    );
+                  }
+                } else {
+                  // Permission denied
+                  Alert.alert(
+                    'Event Created',
+                    'Your event has been created, but you won\'t receive notifications. You can enable notifications in your device Settings > NIURA > Notifications.',
+                    [{ text: 'OK' }]
+                  );
+                }
+              } else {
+                // We already have permission, just schedule the notification
+                const notificationId = await notificationService.scheduleEventNotification(createdEvent);
+                if (notificationId) {
+                  Alert.alert(
+                    'Event Created!', 
+                    `Your ${createdEvent.title} has been scheduled with a reminder at ${eventsService.formatEventTime(createdEvent.time)}.`
+                  );
+                }
+              }
+            } catch (notificationError) {
+              console.error('Error handling notifications:', notificationError);
+              // Don't fail the event creation if notifications fail
+              Alert.alert('Event Created', 'Your event has been created, but there was an issue setting up the reminder.');
+            }
+          } else {
+            // No reminder requested
+            Alert.alert('Event Created!', `Your ${createdEvent.title} has been scheduled.`);
+          }
+          
+          // Refresh events to show the new event
+          await refreshEvents();
+          
           setNewEvent({
             date: '',
             title: '',
@@ -243,13 +296,23 @@ const CalendarScreen = () => {
             style: 'destructive',
             onPress: async () => {
               try {
+                console.log('Deleting event from UI:', item.id);
                 const success = await deleteEvent(item.id);
-                if (!success) {
+                if (success) {
+                  // Refresh the events list to ensure UI is in sync
+                  await refreshEvents();
+                  // Don't show success message, just let it work silently
+                } else {
                   Alert.alert('Error', 'Failed to delete event. Please try again.');
                 }
               } catch (error) {
                 console.error('Error deleting event:', error);
-                Alert.alert('Error', 'Failed to delete event. Please check your connection and try again.');
+                // Only show error if it's not a 404 (event not found) error
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                if (!errorMessage.includes('Event not found') && !errorMessage.includes('404')) {
+                  Alert.alert('Error', 'Failed to delete event. Please check your connection and try again.');
+                }
+                // If it's a 404 error, the event was already deleted, so don't show error to user
               }
             }
           }
@@ -445,8 +508,8 @@ const CalendarScreen = () => {
                 </Text>
               ) : (
                 <View style={styles.eventsListContainer}>
-                  {dateData.events.map(item => (
-                    <React.Fragment key={item.id}>
+                  {dateData.events.map((item, index) => (
+                    <React.Fragment key={`modal-event-${item.id}-${index}`}>
                       {renderEventItem({item})}
                     </React.Fragment>
                   ))}
@@ -493,7 +556,12 @@ const CalendarScreen = () => {
               
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Type</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeButtonsContainer}>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false} 
+                  style={styles.typeButtonsScrollContainer}
+                  contentContainerStyle={styles.typeButtonsContainer}
+                >
                   {eventsService.getDefaultEventTypes().map((eventType) => (
                     <TouchableOpacity
                       key={eventType.value}
@@ -723,8 +791,8 @@ const CalendarScreen = () => {
               </View>
             ) : (
               <View style={styles.eventsListContainer}>
-                {todaysEvents.map(item => (
-                  <React.Fragment key={item.id}>
+                {todaysEvents.map((item, index) => (
+                  <React.Fragment key={`today-event-${item.id}-${index}`}>
                     {renderEventItem({ item })}
                   </React.Fragment>
                 ))}
@@ -1103,6 +1171,9 @@ const styles = StyleSheet.create({
     padding: 12,
     color: '#FFFFFF',
     fontSize: 16,
+  },
+  typeButtonsScrollContainer: {
+    // Basic ScrollView container styles
   },
   typeButtonsContainer: {
     flexDirection: 'row',

@@ -22,12 +22,35 @@ class ApiClient {
     this.axiosInstance.interceptors.request.use(
       async (config) => {
         const token = await AsyncStorage.getItem('authToken');
+        console.log('🔑 Auth token from storage:', token ? `${token.substring(0, 20)}...` : 'null');
+        
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
+          console.log('🔑 Authorization header set:', config.headers.Authorization ? 'YES' : 'NO');
+          
+          // Enhanced token logging - show full details
+          console.log('🔑 FULL JWT TOKEN:', token);
+          
+          // Decode and show JWT payload
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            console.log('🔑 Token payload:', JSON.stringify(payload, null, 2));
+            console.log('🔑 Token expires:', new Date(payload.exp * 1000).toLocaleString());
+            console.log('🔑 Token issued for user ID:', payload.sub);
+            console.log('🔑 Token issued at:', new Date(payload.iat * 1000).toLocaleString());
+          } catch (decodeError) {
+            console.log('⚠️ Could not decode JWT token payload');
+          }
+        } else {
+          console.log('⚠️ No auth token found in storage');
         }
+        console.log('📡 Making request to:', config.url);
+        console.log('📡 Request method:', config.method);
+        console.log('📡 Request headers:', JSON.stringify(config.headers, null, 2));
         return config;
       },
       (error) => {
+        console.error('❌ Request interceptor error:', error);
         return Promise.reject(error);
       }
     );
@@ -96,8 +119,24 @@ class ApiClient {
   }
 
   private handleError(error: any): Error {
+    console.log('🚨 Full error object in handleError:', JSON.stringify(error, null, 2));
+    console.log('🚨 Error properties:', {
+      message: error.message,
+      code: error.code,
+      config: error.config ? 'present' : 'missing',
+      request: error.request ? 'present' : 'missing',
+      response: error.response ? 'present' : 'missing'
+    });
+    
     if (error.response) {
       // Server responded with error status
+      console.log('🚨 Server response error:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data,
+        headers: error.response.headers
+      });
+      
       const data = error.response.data;
       
       // Handle FastAPI validation errors (array of error objects)
@@ -118,9 +157,18 @@ class ApiClient {
       return new Error(message);
     } else if (error.request) {
       // Request was made but no response received
-      return new Error('Network error. Please check your connection.');
+      console.log('🚨 Network error - no response received:', {
+        request: error.request,
+        code: error.code,
+        errno: error.errno,
+        syscall: error.syscall,
+        address: error.address,
+        port: error.port
+      });
+      return new Error(`Network error: ${error.code || 'Connection failed'}. Please check your connection.`);
     } else {
       // Something else happened in setting up the request
+      console.log('🚨 Request setup error:', error.message);
       return new Error(error.message || 'An unexpected error occurred');
     }
   }

@@ -12,6 +12,7 @@ export interface SignUpParams {
   password: string;
   firstName: string;
   lastName: string;
+  gender: string;
 }
 
 export interface SignInParams {
@@ -43,6 +44,17 @@ interface BackendAuthResponse {
   access_token?: string; // Alternative token field name
 }
 
+interface BackendRegisterResponse {
+  code: string;
+  message: string;
+  data: {
+    id: number | string;
+    email: string;
+    full_name: string;
+    created_at: string;
+  };
+}
+
 interface BackendErrorResponse {
   message?: string;
   detail?: string;
@@ -53,38 +65,40 @@ interface BackendErrorResponse {
 class AuthService {
   private currentUser: User | null = null;
 
-  async signUp({ email, password, firstName, lastName }: SignUpParams): Promise<User> {
+  async signUp({ email, password, firstName, lastName, gender }: SignUpParams): Promise<User> {
     try {
       console.log('Starting sign up process for:', email);
       
       // Make API call to your backend
-      const response = await apiClient.post<BackendAuthResponse>(
+      const response = await apiClient.post<BackendRegisterResponse>(
         apiConfig.endpoints.register,
         {
           email,
           password,
-          first_name: firstName,
-          last_name: lastName,
+          full_name: `${firstName} ${lastName}`,
+          gender,
         }
       );
 
+      console.log('✅ Registration successful! Response:', response.data);
+
+      // Check if registration was successful
+      if (response.data.code !== "00") {
+        throw new Error(response.data.message || 'Registration failed');
+      }
+
       // Transform backend response to your app's User format
       const user: User = {
-        id: String(response.data.user.id),
-        email: response.data.user.email,
-        firstName: response.data.user.first_name || firstName,
-        lastName: response.data.user.last_name || lastName,
+        id: String(response.data.data.id),
+        email: response.data.data.email,
+        firstName: firstName, // Use the input values since backend only returns full_name
+        lastName: lastName,
       };
-
-      // Store auth token if provided
-      const token = response.data.token || response.data.access_token;
-      if (token) {
-        await AsyncStorage.setItem('authToken', token);
-      }
 
       this.currentUser = user;
       await this.storeSession(user);
       
+      console.log('✅ User created and session stored successfully');
       return user;
     } catch (error: any) {
       console.error('Error signing up:', error);
@@ -165,6 +179,36 @@ class AuthService {
       return !!(token && user);
     } catch {
       return false;
+    }
+  }
+
+  // Debug function to get current JWT token
+  async getCurrentToken(): Promise<string | null> {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (token) {
+        console.log('🔑 Current JWT Token:');
+        console.log('Full token:', token);
+        console.log('Token preview:', `${token.substring(0, 50)}...`);
+        
+        // Decode JWT payload (just for info, doesn't validate)
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          console.log('Token payload:', payload);
+          console.log('Token expires:', new Date(payload.exp * 1000));
+          console.log('Token issued for user:', payload.sub);
+        } catch (decodeError) {
+          console.log('Could not decode token payload');
+        }
+        
+        return token;
+      } else {
+        console.log('❌ No auth token found in AsyncStorage');
+        return null;
+      }
+    } catch (error) {
+      console.error('Error getting current token:', error);
+      return null;
     }
   }
 

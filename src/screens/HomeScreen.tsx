@@ -783,6 +783,13 @@ const HomeScreen = () => {
   // Load fallback data on component mount
   useEffect(() => {
     loadFallbackEEGData();
+    
+    // Refresh backend data every 30 seconds
+    const interval = setInterval(() => {
+      loadFallbackEEGData();
+    }, 30000); // 30 seconds
+    
+    return () => clearInterval(interval);
   }, []);
 
   const loadFallbackEEGData = async () => {
@@ -1083,7 +1090,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 30,
+    marginTop: 8,
   },
   buttonText: {
     color: colors.text.primary,
@@ -1322,7 +1329,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   scrollContent: {
-    paddingBottom: 20,
+    paddingBottom: 107,
     paddingTop: 10,
   },
   metricsCircleContainer: {
