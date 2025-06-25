@@ -4033,6 +4033,11 @@ expo-auth-session@^6.0.3:
     expo-web-browser "~14.0.2"
     invariant "^2.2.4"
 
+expo-av@^15.1.6:
+  version "15.1.6"
+  resolved "https://registry.npmjs.org/expo-av/-/expo-av-15.1.6.tgz"
+  integrity sha512-5ZbeXdCmdckZHwtEV+8tRZqLlUWR96gkkUIxpyZAEvK0L+aI/BnyhDCpjnSKWwZo4ZA6lx8/su9kyFNV/mQ/sQ==
+
 expo-blur@~14.0.3:
   version "14.0.3"
   resolved "https://registry.npmjs.org/expo-blur/-/expo-blur-14.0.3.tgz"

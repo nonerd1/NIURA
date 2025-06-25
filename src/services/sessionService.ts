@@ -177,13 +177,85 @@ class SessionService {
         ? `${apiConfig.endpoints.sessionHistory}?${queryParams.toString()}`
         : apiConfig.endpoints.sessionHistory;
       
-      const response = await apiClient.get<SessionHistoryResponse>(url);
+      const response = await apiClient.get<any>(url);
       
-      return response.data;
+      console.log('Raw session history response:', response.data);
+      
+      // Handle the actual backend response format: [{"date": "...", "duration": 0, "label": "..."}]
+      let rawSessions: any[] = [];
+      
+      if (Array.isArray(response.data)) {
+        rawSessions = response.data;
+      } else if (response.data && Array.isArray(response.data.sessions)) {
+        rawSessions = response.data.sessions;
+      } else {
+        console.warn('Unexpected session history response format:', response.data);
+        rawSessions = [];
+      }
+      
+      // Transform backend sessions to frontend SessionData format
+      const transformedSessions: SessionData[] = rawSessions.map((backendSession, index) => {
+        const sessionId = backendSession.id || `session-${Date.now()}-${index}`;
+        
+        return {
+          id: sessionId.toString(),
+          name: backendSession.label || `Session ${index + 1}`,
+          session_type: this.inferSessionType(backendSession.label),
+          status: 'completed' as const,
+          start_time: backendSession.date || new Date().toISOString(),
+          end_time: backendSession.date || new Date().toISOString(),
+          planned_duration: backendSession.duration || 0,
+          actual_duration: backendSession.duration || 0,
+          labels: [],
+          goals: [],
+          notes: '',
+          eeg_data_count: 0,
+          avg_focus: undefined,
+          avg_stress: undefined,
+          peak_focus: undefined,
+          focus_time_percentage: undefined,
+          created_at: backendSession.date || new Date().toISOString(),
+          updated_at: backendSession.date || new Date().toISOString()
+        };
+      });
+      
+      console.log('Transformed sessions:', transformedSessions);
+      
+      return {
+        success: true,
+        sessions: transformedSessions,
+        total_count: transformedSessions.length,
+        page: filters?.page || 1,
+        per_page: filters?.per_page || 20,
+        total_pages: Math.ceil(transformedSessions.length / (filters?.per_page || 20))
+      };
     } catch (error: any) {
       console.error('Error fetching session history:', error);
       throw new Error(error.message || 'Failed to fetch session history');
     }
+  }
+
+  // Helper method to infer session type from label
+  private inferSessionType(label: string): 'focus' | 'meditation' | 'study' | 'break' | 'custom' {
+    if (!label) return 'focus';
+    
+    // First, check if session type is encoded in brackets (new format)
+    const bracketMatch = label.match(/\[([^\]]+)\]$/);
+    if (bracketMatch) {
+      const encodedType = bracketMatch[1].toLowerCase();
+      if (['focus', 'meditation', 'study', 'break', 'custom'].includes(encodedType)) {
+        return encodedType as 'focus' | 'meditation' | 'study' | 'break' | 'custom';
+      }
+    }
+    
+    // Fallback to label-based inference (legacy format)
+    const lowerLabel = label.toLowerCase();
+    if (lowerLabel.includes('meditat')) return 'meditation';
+    if (lowerLabel.includes('study') || lowerLabel.includes('learn')) return 'study';
+    if (lowerLabel.includes('break') || lowerLabel.includes('rest')) return 'break';
+    if (lowerLabel.includes('focus') || lowerLabel.includes('work')) return 'focus';
+    
+    return 'custom';
   }
 
   // Helper method to format session duration
@@ -223,7 +295,8 @@ class SessionService {
 
   // Helper method to calculate session statistics
   calculateSessionStats(sessions: SessionData[]) {
-    if (sessions.length === 0) {
+    // Add proper null/undefined checking
+    if (!sessions || !Array.isArray(sessions) || sessions.length === 0) {
       return {
         totalSessions: 0,
         totalDuration: 0,
@@ -284,6 +357,34 @@ class SessionService {
       { id: 'reading', name: 'Reading', color: '#795548', category: 'study' },
       { id: 'planning', name: 'Planning', color: '#607D8B', category: 'work' }
     ];
+  }
+
+  // Update Session - PUT /api/sessions/{id}
+  async updateSession(sessionId: string, updates: {
+    duration?: number;
+    label?: string;
+    date?: string;
+  }): Promise<boolean> {
+    try {
+      console.log('Updating session:', sessionId, updates);
+      
+      const endpoint = apiClient.buildUrl(apiConfig.endpoints.updateSession, { id: sessionId });
+      const response = await apiClient.put<any>(endpoint, updates);
+      
+      console.log('Session update response:', response.data);
+      
+      // Handle the backend response format: {"message": "Session updated", "session_id": session.id}
+      if (response.data && response.data.message === "Session updated") {
+        console.log('✅ Session updated successfully');
+        return true;
+      }
+      
+      console.warn('Unexpected session update response format:', response.data);
+      return false;
+    } catch (error: any) {
+      console.error('Error updating session:', error);
+      throw new Error(error.message || 'Failed to update session');
+    }
   }
 }
 

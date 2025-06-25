@@ -49,6 +49,7 @@ export const apiConfig = {
     
     // Session management endpoints
     createSession: '/sessions/create',
+    updateSession: '/sessions/{id}',
     sessionHistory: '/sessions/history',
     
     // Event management endpoints (Calendar)

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, TouchableOpacity, Platform, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -64,6 +64,7 @@ type RootStackParamList = {
   Bluetooth: undefined;
   Profile: undefined;
   UIKit: undefined;
+  Calendar: undefined;
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -214,36 +215,109 @@ const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
     return 'LOW';
   };
 
-  // Generate today's hourly data for the chart (fallback if no backend data)
-  const generateTodaysData = () => {
-    const hours = [];
-    const focusData = [];
-    const stressData = [];
+  // Process backend data to show clean 4-hour intervals with real data
+  const processBackendDataFor4HourIntervals = (backendData: any) => {
+    if (!backendData || !backendData.labels || !backendData.focusData || !backendData.stressData) {
+      return generateFallbackData();
+    }
+
+    // Debug: Log the backend data to see what we're working with
+    console.log('🔍 Backend data labels:', backendData.labels);
+    console.log('🔍 Backend focus data:', backendData.focusData);
+    console.log('🔍 Backend stress data:', backendData.stressData);
+
+    // Take evenly spaced data points and assign clean chronological labels
+    const dataLength = backendData.labels.length;
     const currentHour = now.getHours();
     
-    // Generate data for the last 6 hours
-    for (let i = 5; i >= 0; i--) {
-      const hour = (currentHour - i + 24) % 24;
-      const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-      const ampm = hour >= 12 ? 'PM' : 'AM';
-      hours.push(`${hour12}${ampm}`);
-      
-      // Generate realistic focus data that trends toward current value
-      const baseFocusValue = focusValue;
-      const focusVariation = (Math.random() - 0.5) * 0.6; // ±0.3 variation
-      focusData.push(Math.max(0, Math.min(3, baseFocusValue + focusVariation)));
-      
-      // Generate realistic stress data that trends toward current value
-      const baseStressValue = stressValue;
-      const stressVariation = (Math.random() - 0.5) * 0.6; // ±0.3 variation
-      stressData.push(Math.max(0, Math.min(3, baseStressValue + stressVariation)));
-    }
+    // Define our target time slots based on current time
+    const allTimeSlots = [
+      { hour: 6, label: '6AM' },
+      { hour: 10, label: '10AM' },
+      { hour: 14, label: '2PM' },
+      { hour: 18, label: '6PM' }
+    ];
     
-    return { labels: hours, focusData, stressData };
+    // Only include time slots that have passed
+    const availableSlots = allTimeSlots.filter(slot => currentHour >= slot.hour);
+    const slotsToShow = availableSlots.length > 0 ? availableSlots : [allTimeSlots[0]];
+    
+    // Calculate which backend data indices to use for each time slot
+    const processedLabels: string[] = [];
+    const processedFocusData: number[] = [];
+    const processedStressData: number[] = [];
+    
+    slotsToShow.forEach((slot, index) => {
+      // Calculate the backend data index for this time slot
+      // Distribute evenly across available backend data
+      let backendIndex;
+      if (slotsToShow.length === 1) {
+        // If only one slot, use the last data point
+        backendIndex = dataLength - 1;
+      } else {
+        // Distribute evenly across the data
+        backendIndex = Math.floor((index * (dataLength - 1)) / (slotsToShow.length - 1));
+      }
+      
+      // Ensure index is within bounds
+      backendIndex = Math.max(0, Math.min(dataLength - 1, backendIndex));
+      
+      processedLabels.push(slot.label);
+      processedFocusData.push(backendData.focusData[backendIndex] || 0);
+      processedStressData.push(backendData.stressData[backendIndex] || 0);
+      
+      console.log(`✅ Using ${slot.label} with backend data from index ${backendIndex}: focus=${backendData.focusData[backendIndex]}, stress=${backendData.stressData[backendIndex]}`);
+    });
+    
+    return {
+      labels: processedLabels,
+      focusData: processedFocusData,
+      stressData: processedStressData
+    };
   };
 
-  // Use backend data if available, otherwise use generated data
-  const chartData = aggregateData || generateTodaysData();
+  // Fallback data generation (only used when no backend data)
+  const generateFallbackData = () => {
+    const currentHour = now.getHours();
+    const timeSlots = [
+      { hour: 6, label: '6AM' },
+      { hour: 10, label: '10AM' }, 
+      { hour: 14, label: '2PM' },
+      { hour: 18, label: '6PM' }
+    ];
+    
+    const availableSlots = timeSlots.filter(slot => currentHour >= slot.hour);
+    const slotsToShow = availableSlots.length > 0 ? availableSlots : [timeSlots[0]];
+    
+    const labels = slotsToShow.map(slot => slot.label);
+    const focusData: number[] = [];
+    const stressData: number[] = [];
+    
+    slotsToShow.forEach(slot => {
+      let baseFocusValue = focusValue;
+      if (slot.hour === 6) baseFocusValue = focusValue * 0.9;
+      else if (slot.hour === 10) baseFocusValue = focusValue * 1.2;
+      else if (slot.hour === 14) baseFocusValue = focusValue * 1.0;
+      else if (slot.hour === 18) baseFocusValue = focusValue * 0.7;
+      
+      const focusVariation = (Math.random() - 0.5) * 0.4;
+      focusData.push(Math.max(0, Math.min(3, baseFocusValue + focusVariation)));
+      
+      let baseStressValue = stressValue;
+      if (slot.hour === 6) baseStressValue = stressValue * 0.8;
+      else if (slot.hour === 10) baseStressValue = stressValue * 1.0;
+      else if (slot.hour === 14) baseStressValue = stressValue * 1.1;
+      else if (slot.hour === 18) baseStressValue = stressValue * 1.2;
+      
+      const stressVariation = (Math.random() - 0.5) * 0.3;
+      stressData.push(Math.max(0, Math.min(3, baseStressValue + stressVariation)));
+    });
+    
+    return { labels, focusData, stressData };
+  };
+
+  // Use backend data if available, otherwise use fallback
+  const chartData = aggregateData ? processBackendDataFor4HourIntervals(aggregateData) : generateFallbackData();
 
   return (
     <View style={styles.todaysMetricsContainer}>
@@ -313,7 +387,7 @@ const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
       
       {aggregateData && (
         <Text style={styles.dataSourceIndicator}>
-          Showing real data ({aggregateData.totalSamples} samples)
+          Showing real data ({aggregateData.totalSamples} samples) - 4hr intervals
         </Text>
       )}
     </View>
@@ -396,8 +470,53 @@ const MoodMusic = () => {
     }
   };
 
-  const displaySuggestion = musicSuggestions.length > 0 ? musicSuggestions[0] : null;
+  const handlePlayMusic = async () => {
+    try {
+      const displaySuggestion = musicSuggestions.length > 0 ? musicSuggestions[0] : null;
+      const musicUrl = displaySuggestion?.preview_url;
 
+      if (!musicUrl) {
+        Alert.alert(
+          'Music Suggestion', 
+          `Try listening to: ${displaySuggestion?.title || 'Focus music'}\n\nRecommended for: ${displaySuggestion?.recommended_for || 'concentration'}`,
+          [
+            { text: 'OK', style: 'default' }
+          ]
+        );
+        return;
+      }
+
+      // Check if URL can be opened
+      const supported = await Linking.canOpenURL(musicUrl);
+      
+      if (supported) {
+        await Linking.openURL(musicUrl);
+      } else {
+        // Fallback: Show music suggestion info
+        Alert.alert(
+          'Music Suggestion', 
+          `🎵 ${displaySuggestion?.title || 'Focus Beats'}\n\n${displaySuggestion?.artist || displaySuggestion?.genre || 'Lo-fi beats to help you concentrate'}\n\nRecommended for: ${displaySuggestion?.recommended_for || 'focus'}`,
+          [
+            { text: 'Got it!', style: 'default' }
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Error opening music:', error);
+      
+      // Show music info as fallback
+      const displaySuggestion = musicSuggestions.length > 0 ? musicSuggestions[0] : null;
+      Alert.alert(
+        'Music Suggestion', 
+        `🎵 ${displaySuggestion?.title || 'Focus Beats'}\n\n${displaySuggestion?.artist || displaySuggestion?.genre || 'Lo-fi beats to help you concentrate'}\n\nRecommended for: ${displaySuggestion?.recommended_for || 'focus'}`,
+        [
+          { text: 'Thanks!', style: 'default' }
+        ]
+      );
+    }
+  };
+
+  const displaySuggestion = musicSuggestions.length > 0 ? musicSuggestions[0] : null;
   const defaultTitle = "Focus Beats";
   const defaultDescription = "Lo-fi beats to help you concentrate";
 
@@ -408,35 +527,58 @@ const MoodMusic = () => {
         <Text style={styles.moodMusicTitle}>Music for You</Text>
       </View>
       <View style={styles.moodMusicContent}>
-        <LinearGradient
-          colors={[colors.primary.main, colors.primary.light]}
-          style={styles.musicCard}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-        >
-          <View style={styles.musicInfo}>
-            <Text style={styles.musicType}>
-              {displaySuggestion?.title || defaultTitle}
-            </Text>
-            <Text style={styles.musicDescription}>
-              {displaySuggestion?.artist || displaySuggestion?.genre || defaultDescription}
-            </Text>
-            {displaySuggestion?.recommended_for && (
-              <Text style={styles.musicMood}>
-                For {displaySuggestion.recommended_for}
+        <TouchableOpacity onPress={handlePlayMusic}>
+          <LinearGradient
+            colors={[colors.primary.main, colors.primary.light]}
+            style={styles.musicCard}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            <View style={styles.musicInfo}>
+              <Text style={styles.musicType}>
+                {displaySuggestion?.title || defaultTitle}
               </Text>
-            )}
-          </View>
-          <Ionicons name="play-circle" size={36} color={colors.text.primary} />
-        </LinearGradient>
+              <Text style={styles.musicDescription}>
+                {displaySuggestion?.artist || displaySuggestion?.genre || defaultDescription}
+              </Text>
+              {displaySuggestion?.recommended_for && (
+                <Text style={styles.musicMood}>
+                  For {displaySuggestion.recommended_for}
+                </Text>
+              )}
+              <Text style={styles.tapToPlay}>Tap to play or get suggestion</Text>
+            </View>
+            <View style={styles.playButton}>
+              <Ionicons 
+                name="play-circle" 
+                size={36} 
+                color={colors.text.primary} 
+              />
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
       </View>
     </View>
   );
 };
 
+// Add Calendar Goal interface before the Tasks component
+interface CalendarGoal {
+  id: string;
+  title: string;
+  target: number;
+  current: number;
+  startDate: string;
+  endDate: string;
+  type: 'focus' | 'stress' | 'custom';
+  trackingType: 'sessions' | 'minutes' | 'focus_score' | 'stress_episodes' | 'manual';
+  targetMetric?: string;
+}
+
 const Tasks = () => {
-  const [goals, setGoals] = useState<Goal[]>([]);
+  const [goals, setGoals] = useState<CalendarGoal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const navigation = useNavigation<NavigationProp>();
 
   useEffect(() => {
     loadCurrentGoals();
@@ -444,61 +586,113 @@ const Tasks = () => {
 
   const loadCurrentGoals = async () => {
     try {
-      const currentGoals = await eegService.getCurrentGoals();
-      setGoals(currentGoals);
+      // Use the same goals as Calendar screen to ensure consistency
+      const calendarGoals: CalendarGoal[] = [
+        {
+          id: '1',
+          title: 'Complete Deep Work Sessions',
+          target: 10,
+          current: 0,
+          startDate: '2025-01-01',
+          endDate: '2025-12-31',
+          type: 'stress',
+          trackingType: 'sessions'
+        },
+        {
+          id: '2',
+          title: 'Focus Training Hours',
+          target: 25,
+          current: 25, // This matches the completed goal in calendar
+          startDate: '2025-01-01',
+          endDate: '2025-12-31',
+          type: 'focus',
+          trackingType: 'minutes'
+        },
+        {
+          id: '3',
+          title: 'Mindfulness Practice',
+          target: 15,
+          current: 10,
+          startDate: '2025-01-01',
+          endDate: '2025-12-31',
+          type: 'custom',
+          trackingType: 'sessions'
+        }
+      ];
+      setGoals(calendarGoals);
     } catch (error) {
       console.error('Error loading current goals:', error);
-      // Keep default data on error
     } finally {
       setIsLoading(false);
     }
   };
 
-  const renderGoal = (goal: Goal, index: number) => {
-    const progress = eegService.getGoalProgress(goal);
+  const handleViewAllGoals = () => {
+    // Navigate to Calendar screen with goals tab focused
+    navigation.navigate('Calendar' as any);
+  };
+
+  const renderGoal = (goal: CalendarGoal, index: number) => {
+    const progress = Math.min((goal.current / goal.target) * 100, 100);
+    const isCompleted = goal.current >= goal.target;
     
     return (
-      <View key={goal.id || index} style={styles.taskItem}>
+      <View key={goal.id || index} style={[styles.taskItem, isCompleted && styles.taskItemCompleted]}>
         <View style={styles.taskHeader}>
-          <Text style={styles.taskTitle}>{goal.title}</Text>
+          <Text style={[styles.taskTitle, isCompleted && styles.taskTitleCompleted]}>
+            {goal.title}
+            {isCompleted && <Text style={styles.completedBadge}> ✅</Text>}
+          </Text>
           <Text style={styles.taskProgress}>
-            {goal.current_value || 0}/{goal.target_value || 100}
-            {goal.target_value ? '' : '%'}
+            {goal.current}/{goal.target}
           </Text>
         </View>
         <View style={styles.progressBarBackground}>
           <LinearGradient
-            colors={[colors.primary.main, colors.primary.light]}
+            colors={isCompleted ? ['#27ae60', '#2ecc71'] : [colors.primary.main, colors.primary.light]}
             style={[styles.progressBarFill, { width: `${progress}%` }]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
           />
         </View>
-        {goal.description && (
-          <Text style={styles.goalDescription}>{goal.description}</Text>
-        )}
+        <Text style={styles.goalTrackingInfo}>
+          Tracking: {goal.trackingType === 'sessions' ? 'Session count' : 
+                    goal.trackingType === 'minutes' ? 'Total minutes' :
+                    goal.trackingType === 'focus_score' ? 'High focus sessions' :
+                    goal.trackingType === 'stress_episodes' ? 'Low stress days' :
+                    'Manual updates'}
+        </Text>
       </View>
     );
   };
 
-  // Default goals if no backend data
-  const defaultGoals = [
-    { id: 1, title: "Daily Meditation", current_value: 15, target_value: 20 },
-    { id: 2, title: "Focus Session", current_value: 45, target_value: 90 },
-    { id: 3, title: "Stress Management", current_value: 2, target_value: 3 },
-  ];
-
-  const displayGoals = goals.length > 0 ? goals.slice(0, 3) : defaultGoals;
+  const displayGoals = goals.slice(0, 3); // Show top 3 goals
 
   return (
     <View style={styles.tasksContainer}>
       <View style={styles.tasksHeader}>
-        <Ionicons name="list" size={20} color={colors.text.primary} />
-        <Text style={styles.tasksTitle}>Current Goals</Text>
+        <View style={styles.tasksHeaderLeft}>
+          <Ionicons name="list" size={20} color={colors.text.primary} />
+          <Text style={styles.tasksTitle}>Current Goals</Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.viewAllButton}
+          onPress={handleViewAllGoals}
+        >
+          <Text style={styles.viewAllText}>View All</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.primary.main} />
+        </TouchableOpacity>
       </View>
       <View style={styles.tasksContent}>
         {displayGoals.map((goal, index) => renderGoal(goal, index))}
       </View>
+      <TouchableOpacity 
+        style={styles.manageGoalsButton}
+        onPress={handleViewAllGoals}
+      >
+        <Ionicons name="settings-outline" size={16} color={colors.primary.main} />
+        <Text style={styles.manageGoalsText}>Manage Goals in Calendar</Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -794,17 +988,64 @@ const HomeScreen = () => {
 
   const loadFallbackEEGData = async () => {
     try {
-      const fallbackData = await eegService.getEEGDataWithFallback();
-      setFallbackEEGData(fallbackData);
-      console.log('Loaded fallback EEG data:', fallbackData);
+      console.log('🧠 Attempting to fetch latest EEG data from backend...');
+      const eegData = await eegService.getEEGDataWithFallback();
+      
+      console.log('Loaded fallback EEG data:', eegData);
+      
+      // Update the fallback EEG data state - this will be used by getDisplayValues()
+      if (eegData.focusValue !== undefined && eegData.stressValue !== undefined) {
+        
+        // Calculate mental readiness (0-100%)
+        const calculatedMentalReadiness = Math.round(((eegData.focusValue - eegData.stressValue + 3) / 6) * 100);
+        
+        console.log('🎯 Updating UI with EEG data:', {
+          backend: { focus: eegData.focusValue, stress: eegData.stressValue },
+          mentalReadiness: calculatedMentalReadiness,
+          source: eegData.source,
+          isRecent: eegData.isRecent,
+          timeAgo: eegData.timeAgo
+        });
+        
+        // Update the fallback data state
+        setFallbackEEGData({
+          ...eegData,
+          mentalReadiness: calculatedMentalReadiness
+        });
+        
+        // Update mental readiness state
+        setMentalReadiness(calculatedMentalReadiness);
+        
+      } else {
+        console.log('⚠️ No valid EEG data found, using defaults');
+      }
+      
     } catch (error) {
-      console.error('Error loading fallback EEG data:', error);
+      console.error('❌ Error loading EEG data:', error);
     }
   };
 
   // Determine which values to use with smart fallback logic
   const getDisplayValues = () => {
-    // Priority 1: Demo mode values
+    // Priority 1: Latest backend data (if recent or forced)
+    if (fallbackEEGData && fallbackEEGData.source === 'backend') {
+      console.log('🎯 Using backend EEG data:', {
+        focus: fallbackEEGData.focusValue,
+        stress: fallbackEEGData.stressValue,
+        isRecent: fallbackEEGData.isRecent,
+        timeAgo: fallbackEEGData.timeAgo
+      });
+      return {
+        focusValue: fallbackEEGData.focusValue,
+        stressValue: fallbackEEGData.stressValue,
+        source: 'backend',
+        isLive: false,
+        timeAgo: fallbackEEGData.timeAgo,
+        isRecent: fallbackEEGData.isRecent
+      };
+    }
+
+    // Priority 2: Demo mode values
     if (demoMode && (demoFocusValue !== undefined && demoStressValue !== undefined)) {
       return {
         focusValue: demoFocusValue,
@@ -814,25 +1055,13 @@ const HomeScreen = () => {
       };
     }
 
-    // Priority 2: Live BLE values
+    // Priority 3: Live BLE values
     if (!demoMode && (bleFocusValue !== undefined && bleStressValue !== undefined)) {
       return {
         focusValue: bleFocusValue,
         stressValue: bleStressValue,
         source: 'earbuds',
         isLive: true
-      };
-    }
-
-    // Priority 3: Latest backend data
-    if (fallbackEEGData && fallbackEEGData.source === 'backend') {
-      return {
-        focusValue: fallbackEEGData.focusValue,
-        stressValue: fallbackEEGData.stressValue,
-        source: 'backend',
-        isLive: false,
-        timeAgo: fallbackEEGData.timeAgo,
-        isRecent: fallbackEEGData.isRecent
       };
     }
 
@@ -932,43 +1161,6 @@ const HomeScreen = () => {
     storeMetrics();
   }, [demoMode, bleFocusValue, bleStressValue]);
 
-  // Add data source indicator component
-  const DataSourceIndicator = () => {
-    if (!displayValues.source || displayValues.source === 'default') return null;
-
-    const getIndicatorText = () => {
-      switch (displayValues.source) {
-        case 'demo':
-          return '🎮 Demo Mode';
-        case 'earbuds':
-          return '🎧 Live from Earbuds';
-        case 'backend':
-          return `📊 Last Session ${displayValues.timeAgo}`;
-        default:
-          return '';
-      }
-    };
-
-    const getIndicatorColor = () => {
-      switch (displayValues.source) {
-        case 'demo':
-          return '#FF6B6B';
-        case 'earbuds':
-          return '#4CAF50';
-        case 'backend':
-          return displayValues.isRecent ? '#FF9500' : '#7a889e';
-        default:
-          return '#7a889e';
-      }
-    };
-
-    return (
-      <View style={[styles.dataSourceBadge, { backgroundColor: getIndicatorColor() }]}>
-        <Text style={styles.dataSourceText}>{getIndicatorText()}</Text>
-      </View>
-    );
-  };
-
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <ScrollView 
@@ -978,18 +1170,10 @@ const HomeScreen = () => {
       >
         <Header />
 
-        <DataSourceIndicator />
-
-        {bleError && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{bleError}</Text>
-          </View>
-        )}
-
-        <MetricsHeader 
-          focusValue={currentFocusValue}
-          stressValue={currentStressValue}
-          mentalReadinessScore={mentalReadiness}
+        <TriMetricVisual 
+          focusValue={currentFocusValue} 
+          stressValue={currentStressValue} 
+          mentalReadinessScore={mentalReadiness} 
         />
 
         <RealTimeMetrics
@@ -1193,7 +1377,12 @@ const styles = StyleSheet.create({
   tasksHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  tasksHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   tasksTitle: {
     fontSize: 16,
@@ -1232,7 +1421,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 2,
   },
-  goalDescription: {
+  goalTrackingInfo: {
     fontSize: 12,
     color: colors.text.secondary,
     marginTop: 4,
@@ -1394,17 +1583,58 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
-  dataSourceBadge: {
-    alignSelf: 'center',
+  tapToPlay: {
+    fontSize: 12,
+    color: colors.text.secondary,
+    marginTop: 8,
+  },
+  playButton: {
+    padding: 8,
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
-    marginBottom: 16,
+    backgroundColor: colors.background.dark,
   },
-  dataSourceText: {
-    color: 'white',
+  viewAllText: {
     fontSize: 12,
     fontWeight: 'bold',
+    color: colors.primary.main,
+    marginRight: 4,
+  },
+  manageGoalsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 12,
+    borderRadius: 8,
+    backgroundColor: colors.background.dark,
+    borderWidth: 1,
+    borderColor: colors.primary.main,
+  },
+  manageGoalsText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.primary.main,
+    marginLeft: 8,
+  },
+  taskItemCompleted: {
+    backgroundColor: colors.background.dark,
+  },
+  taskTitleCompleted: {
+    textDecorationLine: 'line-through',
+    opacity: 0.7,
+  },
+  completedBadge: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary.main,
+    marginLeft: 4,
   },
 });
 

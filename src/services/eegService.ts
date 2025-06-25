@@ -1,5 +1,6 @@
 import { apiClient } from './apiClient';
 import { apiConfig } from '../config/amplify';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // EEG Data Types
 export interface Goal {
@@ -135,6 +136,16 @@ interface EEGApiResponse<T> {
 
 class EEGService {
   
+  // EEG Data Buffering and Upload System for Earbuds
+  private eegDataBuffer: Array<{
+    sample_index: number;
+    timestamp: string;
+    eeg: number[];
+  }> = [];
+  
+  private uploadInterval: NodeJS.Timeout | null = null;
+  private isUploading = false;
+
   // Get Current Goals - GET /api/eeg/current-goals
   async getCurrentGoals(): Promise<Goal[]> {
     try {
@@ -433,7 +444,7 @@ class EEGService {
 
     try {
       let invalidTimestampCount = 0;
-      const labels = aggregateData.data.map(point => {
+      const labels = aggregateData.data.map((point, index) => {
         const date = new Date(point.timestamp);
         
         // Check if date is valid
@@ -445,10 +456,11 @@ class EEGService {
         
         switch (aggregateData.range) {
           case 'hourly':
-            return date.toLocaleTimeString('en-US', { 
-              hour: 'numeric', 
-              hour12: true 
-            });
+            // Return all labels - let frontend handle 4-hour filtering
+            const hour = date.getHours();
+            const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            return `${hour12}${ampm}`;
           case 'daily':
             return date.toLocaleDateString('en-US', { 
               weekday: 'short' 
@@ -511,46 +523,61 @@ class EEGService {
     };
   }
 
-  // Helper method to check if we should use latest EEG data as fallback
-  async getEEGDataWithFallback(currentFocus?: number, currentStress?: number) {
-    // If we have current real-time data, use it
-    if (currentFocus !== undefined && currentStress !== undefined) {
-      return {
-        focusValue: currentFocus,
-        stressValue: currentStress,
-        isLive: true,
-        source: 'earbuds'
-      };
-    }
-
-    // Otherwise, try to get latest data from backend
+  // Get EEG Data with Smart Fallback Logic
+  async getEEGDataWithFallback(): Promise<{
+    focusValue: number;
+    stressValue: number;
+    source: 'backend' | 'default';
+    isLive: boolean;
+    isRecent: boolean;
+    timeAgo?: string;
+  }> {
     try {
+      console.log('🧠 Attempting to fetch latest EEG data from backend...');
+      
+      // Try to get latest EEG data from backend
       const latestData = await this.getLatestEEG();
-      const formatted = this.formatLatestEEGForDisplay(latestData);
       
-      return {
-        focusValue: formatted.focusValue,
-        stressValue: formatted.stressValue,
-        isLive: false,
-        source: 'backend',
-        timeAgo: formatted.timeAgoText,
-        isRecent: formatted.isRecent
-      };
-    } catch (error: any) {
-      // Check if this is expected "no data" for new users
-      const isNoDataError = error.message?.includes('No EEG record found');
+      // Check if data is recent (within last 24 hours)
+      const dataTime = new Date(latestData.timestamp);
+      const now = new Date();
+      const hoursDiff = (now.getTime() - dataTime.getTime()) / (1000 * 60 * 60);
+      const isRecent = hoursDiff < 24;
       
-      if (isNoDataError) {
-        console.log('Loaded fallback EEG data: New user with no historical data');
+      // Format time ago
+      let timeAgo = '';
+      if (hoursDiff < 1) {
+        const minutesDiff = Math.floor(hoursDiff * 60);
+        timeAgo = `${minutesDiff} minutes ago`;
+      } else if (hoursDiff < 24) {
+        timeAgo = `${Math.floor(hoursDiff)} hours ago`;
+      } else {
+        const daysDiff = Math.floor(hoursDiff / 24);
+        timeAgo = `${daysDiff} days ago`;
       }
       
-      // Final fallback to default values
+      console.log(`✅ Backend EEG data found: Focus ${latestData.focus_value}, Stress ${latestData.stress_value} (${timeAgo})`);
+      
+      return {
+        focusValue: latestData.focus_value,
+        stressValue: latestData.stress_value,
+        source: 'backend',
+        isLive: false,
+        isRecent,
+        timeAgo
+      };
+      
+    } catch (error: any) {
+      console.log('⚠️ Could not fetch backend EEG data:', error.message);
+      
+      // Return default fallback values
+      console.log('🔄 Using default fallback EEG values');
       return {
         focusValue: 1.5,
         stressValue: 1.5,
-        isLive: false,
         source: 'default',
-        timeAgo: 'No data available'
+        isLive: false,
+        isRecent: false
       };
     }
   }
@@ -641,6 +668,183 @@ class EEGService {
     }
     
     return 0;
+  }
+
+  // Add raw EEG data to buffer (called by earbuds integration)
+  addRawEEGData(rawEEGData: {
+    sample_index: number;
+    timestamp: Date | string;
+    eeg: number[]; // Raw 8-channel EEG data from earbuds
+  }): void {
+    try {
+      const formattedData = {
+        sample_index: rawEEGData.sample_index,
+        timestamp: typeof rawEEGData.timestamp === 'string' 
+          ? rawEEGData.timestamp 
+          : rawEEGData.timestamp.toISOString(),
+        eeg: rawEEGData.eeg
+      };
+
+      this.eegDataBuffer.push(formattedData);
+      
+      console.log(`📊 EEG data buffered: ${this.eegDataBuffer.length} samples in buffer`);
+      
+      // Start auto-upload if not already running
+      if (!this.uploadInterval) {
+        this.startAutoUpload();
+      }
+      
+    } catch (error) {
+      console.error('Error adding EEG data to buffer:', error);
+    }
+  }
+
+  // Start automatic upload every 30 seconds
+  startAutoUpload(): void {
+    if (this.uploadInterval) {
+      clearInterval(this.uploadInterval);
+    }
+
+    this.uploadInterval = setInterval(async () => {
+      await this.uploadBufferedData();
+    }, 30000); // 30 seconds
+
+    console.log('🔄 Auto-upload started: will upload EEG data every 30 seconds');
+  }
+
+  // Stop automatic upload
+  stopAutoUpload(): void {
+    if (this.uploadInterval) {
+      clearInterval(this.uploadInterval);
+      this.uploadInterval = null;
+      console.log('⏹️ Auto-upload stopped');
+    }
+  }
+
+  // Upload buffered data to backend
+  async uploadBufferedData(): Promise<void> {
+    if (this.isUploading || this.eegDataBuffer.length === 0) {
+      return;
+    }
+
+    this.isUploading = true;
+
+    try {
+      const dataToUpload = [...this.eegDataBuffer]; // Copy buffer
+      this.eegDataBuffer = []; // Clear buffer immediately
+
+      console.log(`⬆️ Uploading ${dataToUpload.length} EEG samples to backend...`);
+
+      const batchData = {
+        records: dataToUpload,
+        duration: 4 // Default 4-second processing window
+      };
+
+      const response = await apiClient.post<any>(
+        apiConfig.endpoints.bulkEegUpload,
+        batchData
+      );
+
+      console.log(`✅ EEG data upload successful: ${response.data.message}`);
+      
+    } catch (error: any) {
+      console.error('❌ Failed to upload EEG data:', error.message);
+      
+      // On failure, we could optionally re-add data to buffer for retry
+      // For now, we'll just log the error and continue
+    } finally {
+      this.isUploading = false;
+    }
+  }
+
+  // Manual upload trigger (for testing or immediate upload)
+  async forceUploadBuffer(): Promise<boolean> {
+    try {
+      await this.uploadBufferedData();
+      return true;
+    } catch (error) {
+      console.error('Force upload failed:', error);
+      return false;
+    }
+  }
+
+  // Get buffer status for debugging
+  getBufferStatus(): {
+    bufferSize: number;
+    isAutoUploading: boolean;
+    isCurrentlyUploading: boolean;
+  } {
+    return {
+      bufferSize: this.eegDataBuffer.length,
+      isAutoUploading: !!this.uploadInterval,
+      isCurrentlyUploading: this.isUploading
+    };
+  }
+
+  // Debug method to check authentication and EEG data access
+  async debugEEGDataAccess(): Promise<{
+    isAuthenticated: boolean;
+    currentUser?: any;
+    eegRecordsCount: number;
+    latestRecord?: any;
+    error?: string;
+  }> {
+    try {
+      console.log('🔍 DEBUG: Checking EEG data access...');
+      
+      // Check if we have a valid auth token
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        return {
+          isAuthenticated: false,
+          eegRecordsCount: 0,
+          error: 'No authentication token found'
+        };
+      }
+
+      console.log('🔑 Auth token found:', token.substring(0, 30) + '...');
+
+      // Try to get EEG records to see how many we have access to
+      try {
+        const recordsResponse = await apiClient.get<any>(
+          `${apiConfig.endpoints.eegAggregate.replace('/aggregate', '/records')}?limit=1`
+        );
+        
+        console.log('📊 EEG records response:', recordsResponse.data);
+        
+        return {
+          isAuthenticated: true,
+          eegRecordsCount: recordsResponse.data.count || 0,
+          latestRecord: recordsResponse.data.records?.[0],
+        };
+      } catch (recordsError: any) {
+        console.log('❌ Error fetching EEG records:', recordsError.message);
+        
+        // Try to get latest EEG as fallback
+        try {
+          const latestData = await this.getLatestEEG();
+          return {
+            isAuthenticated: true,
+            eegRecordsCount: 1,
+            latestRecord: latestData,
+          };
+        } catch (latestError: any) {
+          return {
+            isAuthenticated: true,
+            eegRecordsCount: 0,
+            error: `Cannot access EEG data: ${latestError.message}`
+          };
+        }
+      }
+      
+    } catch (error: any) {
+      console.error('🚨 Debug EEG access failed:', error);
+      return {
+        isAuthenticated: false,
+        eegRecordsCount: 0,
+        error: error.message
+      };
+    }
   }
 }
 

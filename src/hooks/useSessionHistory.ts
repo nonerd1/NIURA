@@ -162,7 +162,9 @@ export const useSessionHistory = (initialFilters?: SessionHistoryFilters): UseSe
 
   // Calculate statistics
   const stats = useCallback(() => {
-    return sessionService.calculateSessionStats(sessions);
+    // Ensure sessions is always an array before passing to calculateSessionStats
+    const safeSessions = Array.isArray(sessions) ? sessions : [];
+    return sessionService.calculateSessionStats(safeSessions);
   }, [sessions])();
 
   return {

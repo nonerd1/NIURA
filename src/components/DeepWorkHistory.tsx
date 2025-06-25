@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSessionHistory } from '../hooks/useSessionHistory';
 import { sessionService } from '../services/sessionService';
@@ -39,6 +39,12 @@ const DeepWorkHistory = () => {
     sort_order: 'desc'
   });
 
+  // State for dismissed sessions (frontend-only)
+  const [dismissedSessions, setDismissedSessions] = useState<Set<string>>(new Set());
+
+  // Filter out dismissed sessions
+  const visibleSessions = sessions?.filter(session => !dismissedSessions.has(session.id)) || [];
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-US', { 
@@ -67,7 +73,33 @@ const DeepWorkHistory = () => {
     return sessionService.getSessionTypeColor(sessionType);
   };
 
-  if (isLoading && sessions.length === 0) {
+  const dismissSession = useCallback((sessionId: string) => {
+    setDismissedSessions(prev => new Set([...prev, sessionId]));
+  }, []);
+
+  const clearAllSessions = useCallback(() => {
+    Alert.alert(
+      'Clear All Sessions',
+      'This will hide all sessions from your view. You can refresh to see them again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: () => {
+            const allSessionIds = sessions?.map(s => s.id) || [];
+            setDismissedSessions(new Set(allSessionIds));
+          }
+        }
+      ]
+    );
+  }, [sessions]);
+
+  const undoAllDismissals = useCallback(() => {
+    setDismissedSessions(new Set());
+  }, []);
+
+  if (isLoading && (!sessions || sessions.length === 0)) {
     return (
       <View style={[styles.container, styles.centerContent]}>
         <ActivityIndicator size="large" color={darkTheme.primary.main} />
@@ -76,7 +108,7 @@ const DeepWorkHistory = () => {
     );
   }
 
-  if (error && sessions.length === 0) {
+  if (error && (!sessions || sessions.length === 0)) {
     return (
       <View style={[styles.container, styles.centerContent]}>
         <MaterialCommunityIcons name="alert-circle" size={48} color={darkTheme.warning} />
@@ -121,15 +153,36 @@ const DeepWorkHistory = () => {
 
       {/* Session Timeline */}
       <View style={styles.timelineContainer}>
-        <Text style={styles.sectionTitle}>Recent Sessions</Text>
-        {sessions.length === 0 ? (
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent Sessions</Text>
+          <View style={styles.headerActions}>
+            {dismissedSessions.size > 0 && (
+              <TouchableOpacity style={styles.undoButton} onPress={undoAllDismissals}>
+                <MaterialCommunityIcons name="undo" size={16} color={darkTheme.primary.main} />
+                <Text style={styles.undoButtonText}>Restore ({dismissedSessions.size})</Text>
+              </TouchableOpacity>
+            )}
+            {visibleSessions.length > 0 && (
+              <TouchableOpacity style={styles.clearButton} onPress={clearAllSessions}>
+                <MaterialCommunityIcons name="close-circle-outline" size={16} color={darkTheme.text.secondary} />
+                <Text style={styles.clearButtonText}>Clear All</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+        
+        {(!visibleSessions || visibleSessions.length === 0) ? (
           <View style={styles.emptyState}>
             <MaterialCommunityIcons name="history" size={48} color={darkTheme.text.secondary} />
-            <Text style={styles.emptyStateText}>No sessions yet</Text>
-            <Text style={styles.emptyStateSubtext}>Start your first deep work session to see it here</Text>
+            <Text style={styles.emptyStateText}>
+              {dismissedSessions.size > 0 ? 'All sessions hidden' : 'No sessions yet'}
+            </Text>
+            <Text style={styles.emptyStateSubtext}>
+              {dismissedSessions.size > 0 ? 'Tap "Restore" to show hidden sessions' : 'Start your first deep work session to see it here'}
+            </Text>
           </View>
         ) : (
-          sessions.map((session) => (
+          visibleSessions.map((session) => (
             <View key={session.id} style={styles.sessionItem}>
               <View style={[
                 styles.sessionStatus,
@@ -141,8 +194,9 @@ const DeepWorkHistory = () => {
                 color={getSessionTypeColor(session.session_type)}
                 style={styles.sessionIcon}
               />
+
               <View style={styles.sessionInfo}>
-                <Text style={styles.sessionName}>{session.name}</Text>
+                <Text style={styles.sessionName}>{session.name.replace(/\s*\[[^\]]+\]$/, '')}</Text>
                 <Text style={styles.sessionDate}>{formatDate(session.start_time)}</Text>
                 <View style={styles.sessionMeta}>
                   <Text style={styles.sessionDuration}>
@@ -167,13 +221,22 @@ const DeepWorkHistory = () => {
                   </View>
                 )}
               </View>
-              <MaterialCommunityIcons
-                name={session.status === 'completed' ? "check-circle" : 
-                      session.status === 'active' ? "play-circle" : "pause-circle"}
-                size={20}
-                color={session.status === 'completed' ? darkTheme.primary.main : 
-                       session.status === 'active' ? '#4CAF50' : darkTheme.warning}
-              />
+              
+              <View style={styles.sessionActions}>
+                <MaterialCommunityIcons
+                  name={session.status === 'completed' ? "check-circle" : 
+                        session.status === 'active' ? "play-circle" : "pause-circle"}
+                  size={20}
+                  color={session.status === 'completed' ? darkTheme.primary.main : 
+                         session.status === 'active' ? '#4CAF50' : darkTheme.warning}
+                />
+                <TouchableOpacity 
+                  style={styles.dismissButton}
+                  onPress={() => dismissSession(session.id)}
+                >
+                  <MaterialCommunityIcons name="close" size={16} color={darkTheme.text.secondary} />
+                </TouchableOpacity>
+              </View>
             </View>
           ))
         )}
@@ -261,11 +324,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 24,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: darkTheme.text.primary,
-    marginBottom: 16,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   sessionItem: {
     flexDirection: 'row',
@@ -323,6 +396,14 @@ const styles = StyleSheet.create({
   sessionIcon: {
     marginRight: 12,
   },
+  sessionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dismissButton: {
+    padding: 4,
+  },
   insightsContainer: {
     paddingHorizontal: 20,
     paddingBottom: 24,
@@ -346,16 +427,19 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 40,
   },
   emptyStateText: {
     fontSize: 18,
     fontWeight: '600',
     color: darkTheme.text.primary,
-    marginBottom: 16,
+    marginTop: 16,
   },
   emptyStateSubtext: {
     fontSize: 14,
     color: darkTheme.text.secondary,
+    marginTop: 8,
+    textAlign: 'center',
   },
   loadMoreButton: {
     padding: 16,
@@ -369,30 +453,54 @@ const styles = StyleSheet.create({
     color: darkTheme.text.primary,
   },
   centerContent: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingTop: 60,
   },
   loadingText: {
     fontSize: 16,
-    fontWeight: '600',
     color: darkTheme.text.primary,
     marginTop: 16,
+    fontWeight: '500',
   },
   errorText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: darkTheme.warning,
-    marginBottom: 16,
+    color: darkTheme.text.primary,
+    marginTop: 16,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   retryButton: {
-    padding: 16,
     backgroundColor: darkTheme.primary.main,
     borderRadius: 8,
-    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    marginTop: 16,
   },
   retryButtonText: {
+    color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  undoButton: {
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  undoButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: darkTheme.text.primary,
+  },
+  clearButton: {
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  clearButtonText: {
+    fontSize: 14,
     fontWeight: '600',
     color: darkTheme.text.primary,
   },

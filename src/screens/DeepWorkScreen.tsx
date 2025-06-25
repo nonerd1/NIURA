@@ -562,8 +562,9 @@ const DeepWorkScreen = () => {
       // Create session with backend
       const sessionData = {
         date: new Date().toISOString(),
-        duration: (hours * 60) + minutes + Math.floor(seconds / 60), // Convert to minutes
-        label: sessionName.trim()
+        duration: Math.ceil(((hours * 3600) + (minutes * 60) + seconds) / 60), // Convert total seconds to minutes, round up
+        label: `${sessionName.trim()} [${sessionType}]`, // Include session type in label for backend storage
+        session_type: sessionType // Pass session type for frontend tracking
       };
 
       const success = await startSession(sessionData);
@@ -686,7 +687,14 @@ const DeepWorkScreen = () => {
 
   const toggleTask = async (taskId: string) => {
     try {
-      const success = await toggleTaskCompletion(taskId);
+      // Find the task object from our current tasks array
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) {
+        Alert.alert('Error', 'Task not found.');
+        return;
+      }
+      
+      const success = await toggleTaskCompletion(taskId, !task.completed, task);
       if (!success) {
         Alert.alert('Error', 'Failed to update task. Please try again.');
       }
@@ -937,6 +945,7 @@ const DeepWorkScreen = () => {
             ) : (
               <ScrollView 
                 style={styles.taskList}
+                contentContainerStyle={styles.taskListContent}
                 refreshControl={
                   <RefreshControl
                     refreshing={tasksLoading}
@@ -962,12 +971,24 @@ const DeepWorkScreen = () => {
                     </TouchableOpacity>
                     
                     <View style={styles.taskContent}>
-                      <Text style={[
-                        styles.taskTitle,
-                        task.completed && styles.taskTitleCompleted
-                      ]}>
-                        {task.title}
-                      </Text>
+                      <View style={styles.taskHeader}>
+                        <Text style={[
+                          styles.taskTitle,
+                          task.completed && styles.taskTitleCompleted
+                        ]}>
+                          {task.title}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.deleteButton}
+                          onPress={() => deleteTask(task.id)}
+                        >
+                          <MaterialCommunityIcons
+                            name="trash-can-outline"
+                            size={18}
+                            color={darkTheme.text.secondary}
+                          />
+                        </TouchableOpacity>
+                      </View>
                       
                       {/* Task metadata */}
                       <View style={styles.taskMetadata}>
@@ -1006,23 +1027,12 @@ const DeepWorkScreen = () => {
                         )}
                       </View>
                       
-                      {task.description && (
+                      {task.description && task.description.trim() && task.description !== task.title && (
                         <Text style={styles.taskDescription} numberOfLines={2}>
                           {task.description}
                         </Text>
                       )}
                     </View>
-                    
-                    <TouchableOpacity
-                      style={styles.deleteButton}
-                      onPress={() => deleteTask(task.id)}
-                    >
-                      <MaterialCommunityIcons
-                        name="trash-can-outline"
-                        size={20}
-                        color={darkTheme.text.secondary}
-                      />
-                    </TouchableOpacity>
                   </View>
                 ))}
               </ScrollView>
@@ -1352,10 +1362,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: darkTheme.background.primary,
     paddingHorizontal: 16,
-    paddingTop: 0,
+    paddingTop: 20,
   },
   scrollContentContainer: {
-    paddingBottom: 120, // Add significant bottom padding for scrolling
+    paddingBottom: 40, // Add bottom padding for better spacing from tab bar
   },
   setupContainer: {
     alignItems: 'center',
@@ -1549,21 +1559,27 @@ const styles = StyleSheet.create({
   taskList: {
     flex: 1,
   },
+  taskListContent: {
+    paddingBottom: 80, // Increased padding to ensure last task is fully visible above tab bar
+  },
   taskItem: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: darkTheme.background.secondary,
     borderRadius: 12,
     marginBottom: 8,
-    padding: 12,
+    padding: 16,
   },
   taskCheckbox: {
     marginRight: 12,
+    marginTop: 2,
   },
   taskTitle: {
     flex: 1,
     color: darkTheme.text.primary,
     fontSize: 16,
+    fontWeight: '500',
+    marginRight: 8,
   },
   taskTitleCompleted: {
     textDecorationLine: 'line-through',
@@ -1571,6 +1587,8 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     padding: 4,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   emptyStateContainer: {
     flex: 1,
@@ -1738,6 +1756,7 @@ const styles = StyleSheet.create({
     backgroundColor: darkTheme.background.secondary,
     borderRadius: 8,
     marginBottom: 16,
+    marginTop: 8,
   },
   taskStatItem: {
     alignItems: 'center',
@@ -1792,34 +1811,57 @@ const styles = StyleSheet.create({
   taskContent: {
     flex: 1,
   },
+  taskHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   taskMetadata: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginTop: 8,
+    marginBottom: 8,
   },
   taskPriorityBadge: {
-    padding: 4,
-    borderWidth: 1,
-    borderColor: darkTheme.text.secondary,
-    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 16,
     marginRight: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   taskPriorityText: {
     fontSize: 12,
     fontWeight: '600',
-    color: darkTheme.text.primary,
+    color: '#FFFFFF',
+    marginLeft: 4,
+    textTransform: 'capitalize',
   },
   taskCategoryBadge: {
-    padding: 4,
-    borderWidth: 1,
-    borderColor: darkTheme.text.secondary,
-    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 16,
     marginRight: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   taskCategoryText: {
     fontSize: 12,
     fontWeight: '600',
-    color: darkTheme.text.primary,
+    color: '#FFFFFF',
+    marginLeft: 4,
+    textTransform: 'capitalize',
   },
   taskDuration: {
     fontSize: 12,
@@ -1829,6 +1871,7 @@ const styles = StyleSheet.create({
   taskDescription: {
     fontSize: 14,
     color: darkTheme.text.primary,
+    marginTop: 4,
   },
   addTaskButtonDisabled: {
     opacity: 0.5,

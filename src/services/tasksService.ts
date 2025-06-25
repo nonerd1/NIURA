@@ -19,6 +19,7 @@ export interface Task {
   updated_at: string;
   completed_at?: string;
   _backendId?: string | number; // Optional backend ID for operations
+  _backendLabel?: string; // Optional backend label for operations when ID is not available
 }
 
 export interface CreateTaskRequest {
@@ -84,6 +85,29 @@ interface TaskApiResponse<T> {
   message?: string;
 }
 
+// Backend task response (minimal format from current backend)
+interface BackendTaskMinimal {
+  label: string;
+  description?: string;
+  completed?: boolean;
+  priority?: string;
+  category?: string;
+  due_date?: string;
+  estimated_duration?: number;
+  actual_duration?: number;
+  session_id?: string;
+  tags?: string[];
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string;
+}
+
+// Backend task response (complete format with ID)
+interface BackendTaskComplete extends BackendTaskMinimal {
+  id: number | string;
+}
+
 class TasksService {
   
   // Type guard to check if response is a Task
@@ -109,7 +133,7 @@ class TasksService {
       // Transform frontend data to backend format
       const backendData = {
         label: taskData.title, // Backend expects 'label' instead of 'title'
-        description: taskData.description || taskData.title, // Backend requires description
+        description: taskData.description || '', // Send empty string instead of title
         priority: taskData.priority || 'medium',
         category: taskData.category || 'work',
         completed: false, // New tasks are always incomplete
@@ -136,7 +160,7 @@ class TasksService {
         const createdTask: Task = {
           id: taskId.toString(), // Convert to string for consistency
           title: taskData.title,
-          description: taskData.description || taskData.title,
+          description: taskData.description || '', // Only set description if provided
           completed: false,
           priority: taskData.priority || 'medium',
           category: taskData.category || 'work',
@@ -149,7 +173,8 @@ class TasksService {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           completed_at: undefined,
-          _backendId: taskId // Store the numeric backend ID
+          _backendId: taskId, // Store the numeric backend ID
+          _backendLabel: taskData.title // Store the original label for backend operations
         };
         
         console.log('Task created successfully:', createdTask);
@@ -183,36 +208,115 @@ class TasksService {
     try {
       console.log('Updating task...', taskData);
       
-      const endpoint = apiConfig.endpoints.updateTask.replace('{id}', taskData.id);
-      const { id, ...updateData } = taskData;
+      // Get the backend ID (numeric) for the URL path
+      let backendId: number;
+      if (!isNaN(Number(taskData.id))) {
+        backendId = Number(taskData.id);
+      } else {
+        throw new Error('Invalid task ID format for backend update');
+      }
+      
+      const endpoint = apiConfig.endpoints.updateTask.replace('{id}', backendId.toString());
+      const { id, title, ...updateData } = taskData;
+      
+      // Transform frontend data to backend format
+      const backendUpdateData = {
+        ...updateData,
+        label: title, // Backend expects 'label' instead of 'title'
+        description: updateData.description || '', // Ensure description is included
+      };
       
       // Add completion timestamp if marking as completed
-      if (updateData.completed === true) {
-        updateData.completed_at = new Date().toISOString();
+      if (backendUpdateData.completed === true) {
+        backendUpdateData.completed_at = new Date().toISOString();
       }
+      
+      console.log('Sending update to backend:', { endpoint, data: backendUpdateData });
       
       const response = await apiClient.put<any>(
         endpoint,
-        updateData
+        backendUpdateData
       );
+      
+      console.log('Backend update response:', response.data);
       
       // Handle different response formats
       let task: Task;
+      console.log('Checking response format. Response data:', response.data);
+      console.log('Is Task?', this.isTask(response.data));
+      console.log('Has data property?', this.hasDataProperty(response.data));
+      console.log('Has task property?', this.hasTaskProperty(response.data));
+      console.log('Is update confirmation?', response.data && response.data.message === "Task updated" && response.data.task);
+      
       if (this.isTask(response.data)) {
+        console.log('✅ Path 1: Response is a Task');
         task = response.data;
       } else if (this.hasDataProperty(response.data)) {
+        console.log('✅ Path 2: Response has data property');
         task = response.data.data;
-      } else if (this.hasTaskProperty(response.data)) {
+      } 
+      // Handle the specific backend response format: {"message": "Task updated", "task": task.id}
+      // CHECK THIS BEFORE hasTaskProperty because it's more specific
+      else if (response.data && response.data.message === "Task updated" && response.data.task) {
+        console.log('✅ Path 3: Backend returned update confirmation with ID:', response.data.task);
+        // Backend only returned the ID, construct the updated task object from our data
+        task = {
+          id: taskData.id,
+          title: title || 'Updated Task',
+          description: updateData.description || '',
+          completed: backendUpdateData.completed !== undefined ? backendUpdateData.completed : false,
+          priority: updateData.priority || 'medium',
+          category: updateData.category || 'work',
+          due_date: updateData.due_date,
+          estimated_duration: updateData.estimated_duration,
+          actual_duration: updateData.actual_duration,
+          session_id: updateData.session_id,
+          tags: updateData.tags || [],
+          notes: updateData.notes || '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          completed_at: backendUpdateData.completed_at,
+          _backendId: backendId,
+          _backendLabel: title || 'Updated Task'
+        };
+        console.log('Constructed updated task from backend confirmation:', { id: task.id, completed: task.completed, title: task.title });
+      }
+      else if (this.hasTaskProperty(response.data)) {
+        console.log('✅ Path 4: Response has task property (generic)');
         task = response.data.task;
-      } else {
-        throw new Error('Invalid response format');
+      } 
+      else {
+        console.log('✅ Path 5: Fallback - constructing task from our data');
+        // If the response doesn't have the updated task, create it from our data
+        // Make sure to use the UPDATED values, not the original task values
+        task = {
+          id: taskData.id,
+          title: title || 'Updated Task',
+          description: updateData.description || '',
+          completed: backendUpdateData.completed !== undefined ? backendUpdateData.completed : false,
+          priority: updateData.priority || 'medium',
+          category: updateData.category || 'work',
+          due_date: updateData.due_date,
+          estimated_duration: updateData.estimated_duration,
+          actual_duration: updateData.actual_duration,
+          session_id: updateData.session_id,
+          tags: updateData.tags || [],
+          notes: updateData.notes || '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          completed_at: backendUpdateData.completed_at,
+          _backendId: backendId,
+          _backendLabel: title || 'Updated Task'
+        };
       }
       
       console.log('Task updated successfully:', task);
+      console.log('Final task completed status:', task.completed);
       return task;
     } catch (error: any) {
       console.error('Error updating task:', error);
-      throw new Error(error.message || 'Failed to update task');
+      console.error('Error response:', error.response?.data);
+      throw new Error(error.response?.data?.message || error.message || 'Failed to update task');
     }
   }
 
@@ -251,7 +355,23 @@ class TasksService {
       const response = await apiClient.delete<DeleteTaskResponse>(endpoint);
       
       console.log('Task deleted successfully from backend');
-      return response.data.success;
+      console.log('Backend delete response:', response.data);
+      
+      // Handle the actual backend response format: {"message": "Task deleted"}
+      if (response.data && response.data.message === "Task deleted") {
+        console.log('✅ Backend confirmed task deletion');
+        return true;
+      }
+      
+      // Fallback: check for success field (in case backend format changes)
+      if (response.data && response.data.success) {
+        console.log('✅ Backend returned success field');
+        return response.data.success;
+      }
+      
+      // If we get here, the response format is unexpected
+      console.warn('⚠️ Unexpected backend delete response format:', response.data);
+      return true; // Assume success if we didn't get an error
     } catch (error: any) {
       console.error('Error deleting task:', error);
       console.error('Error response:', error.response?.data);
@@ -261,26 +381,35 @@ class TasksService {
 
   // Helper method to transform backend task data to frontend format
   private transformBackendTask(backendTask: any): Task {
-    // Use the backend ID if it exists and is numeric, otherwise generate one
+    console.log('Transforming task:', { id: backendTask.id, label: backendTask.label });
+    
+    // ALWAYS use the backend ID as the frontend ID if it's numeric
     let id: string;
+    let backendId: number | undefined;
+    
     if (backendTask.id && !isNaN(Number(backendTask.id))) {
-      id = backendTask.id.toString();
+      // Backend has a numeric ID - use it directly
+      backendId = Number(backendTask.id);
+      id = backendId.toString(); // Use the numeric ID as string for frontend
+      console.log('✅ Using backend numeric ID:', backendId, 'as frontend ID:', id);
     } else if (backendTask.label) {
-      // For string-based tasks, create a more unique ID to avoid collisions
+      // Fallback: generate ID from label if backend ID is missing/invalid
       const timestamp = Date.now();
       const randomSuffix = Math.random().toString(36).substr(2, 9);
       id = `${backendTask.label}-${timestamp}-${randomSuffix}`;
+      console.warn('⚠️ Generated ID for task without valid backend ID:', id);
     } else {
-      // Generate completely unique ID for tasks without labels
+      // Last resort: generate completely unique ID
       const timestamp = Date.now();
       const randomSuffix = Math.random().toString(36).substr(2, 9);
       id = `task-${timestamp}-${randomSuffix}`;
+      console.warn('⚠️ Generated fallback ID for task:', id);
     }
     
-    return {
+    const result = {
       id: id,
       title: backendTask.label || backendTask.title || 'Untitled Task',
-      description: backendTask.description || '',
+      description: backendTask.description || undefined,
       completed: backendTask.completed || false,
       priority: backendTask.priority || 'medium',
       category: backendTask.category || 'work',
@@ -293,9 +422,13 @@ class TasksService {
       created_at: backendTask.created_at || new Date().toISOString(),
       updated_at: backendTask.updated_at || new Date().toISOString(),
       completed_at: backendTask.completed_at,
-      // Store the original backend ID for operations if different from our ID
-      ...(backendTask.id && backendTask.id !== id && { _backendId: backendTask.id })
+      _backendId: backendId, // Store the numeric backend ID for operations
+      _backendLabel: backendTask.label // Store the original label for backend operations
     };
+    
+    console.log('Transformed result:', { id: result.id, _backendId: result._backendId, title: result.title });
+    
+    return result;
   }
 
   // Get Tasks - GET /api/tasks
@@ -319,20 +452,92 @@ class TasksService {
       
       const response = await apiClient.get<TasksResponse | Task[]>(url);
       
+      console.log('=== BACKEND RESPONSE ===');
+      console.log('Raw backend response:', JSON.stringify(response.data, null, 2));
+      
       // Handle different response formats
-      const rawTasks = Array.isArray(response.data) 
+      const rawTasks: (BackendTaskMinimal | BackendTaskComplete | Task)[] = Array.isArray(response.data) 
         ? response.data 
         : (response.data as TasksResponse).tasks;
       
-      // Transform backend data to frontend format
-      const tasks = (rawTasks || []).map(task => this.transformBackendTask(task));
+      console.log('Extracted tasks:', JSON.stringify(rawTasks, null, 2));
       
-      console.log('Tasks fetched and transformed successfully:', tasks);
-      return tasks;
+      // Check if we have proper task data with IDs
+      if (rawTasks && rawTasks.length > 0) {
+        const firstTask = rawTasks[0] as any;
+        
+        // If tasks now have proper IDs, use the standard transformation
+        if (firstTask.id !== undefined && firstTask.id !== null) {
+          console.log('✅ Backend now returning tasks with IDs! Processing normally...');
+          
+          const tasks = rawTasks.map((task: any) => this.transformBackendTask(task));
+          
+          console.log('=== TRANSFORMED TASKS ===');
+          tasks.forEach((task, index) => {
+            console.log(`Task ${index + 1}:`, { 
+              id: task.id, 
+              _backendId: task._backendId, 
+              title: task.title,
+              hasNumericBackendId: !isNaN(Number(task._backendId))
+            });
+          });
+          
+          return tasks;
+        }
+        
+        // Fallback: If still only labels, use the consistent ID generation
+        else if (firstTask.label && !firstTask.id) {
+          console.warn('⚠️ Backend still returning minimal task data. Using consistent ID generation...');
+          
+          const functionalTasks = (rawTasks as BackendTaskMinimal[]).map((task: BackendTaskMinimal, index: number) => {
+            const consistentId = this.generateConsistentId(task.label, index);
+            
+            return {
+              id: consistentId,
+              title: task.label,
+              description: task.description || '',
+              completed: task.completed || false,
+              priority: (task.priority as any) || 'medium',
+              category: (task.category as any) || 'work',
+              due_date: task.due_date,
+              estimated_duration: task.estimated_duration,
+              actual_duration: task.actual_duration,
+              session_id: task.session_id,
+              tags: task.tags || [],
+              notes: task.notes || '',
+              created_at: task.created_at || new Date().toISOString(),
+              updated_at: task.updated_at || new Date().toISOString(),
+              completed_at: task.completed_at,
+              _backendId: undefined,
+              _backendLabel: task.label
+            };
+          });
+          
+          console.log('Created functional tasks with consistent IDs');
+          return functionalTasks;
+        }
+      }
+      
+      console.log('No tasks found or unexpected format');
+      return [];
+      
     } catch (error: any) {
       console.error('Error fetching tasks:', error);
       throw new Error(error.message || 'Failed to fetch tasks');
     }
+  }
+
+  // Helper method to generate consistent IDs for tasks without backend IDs
+  private generateConsistentId(label: string, index: number): string {
+    // Create a simple hash of the label to ensure consistency
+    let hash = 0;
+    for (let i = 0; i < label.length; i++) {
+      const char = label.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    return `task-${Math.abs(hash)}-${index}`;
   }
 
   // Get tasks for a specific session
@@ -351,12 +556,105 @@ class TasksService {
   }
 
   // Toggle task completion
-  async toggleTaskCompletion(taskId: string, completed: boolean): Promise<Task> {
-    return this.updateTask({ 
-      id: taskId, 
-      completed,
-      ...(completed && { actual_duration: this.calculateTaskDuration(taskId) })
-    });
+  async toggleTaskCompletion(taskId: string, completed: boolean, taskObject?: Task): Promise<Task> {
+    try {
+      console.log('Toggling task completion...', { taskId, completed, taskObject: taskObject ? { id: taskObject.id, _backendId: taskObject._backendId } : 'none' });
+      
+      let currentTask: Task;
+      
+      // If task object is provided, use it directly
+      if (taskObject) {
+        currentTask = taskObject;
+        console.log('Using provided task object:', { id: currentTask.id, _backendId: currentTask._backendId, title: currentTask.title });
+      } else {
+        // Otherwise, try to find it in the current tasks list
+        const tasks = await this.getTasks();
+        const foundTask = tasks.find(task => task.id === taskId);
+        
+        if (!foundTask) {
+          console.error('Task not found in tasks list. Available tasks:', tasks.map(t => ({ id: t.id, title: t.title, _backendId: t._backendId })));
+          throw new Error('Task not found');
+        }
+        
+        currentTask = foundTask;
+      }
+      
+      // Determine the backend ID to use
+      let numericId: number;
+      
+      // Priority 1: Use _backendId if it exists
+      if (currentTask._backendId !== undefined && currentTask._backendId !== null) {
+        numericId = Number(currentTask._backendId);
+        console.log('Using _backendId:', numericId);
+      }
+      // Priority 2: If the task ID itself is numeric, use it
+      else if (!isNaN(Number(currentTask.id))) {
+        numericId = Number(currentTask.id);
+        console.log('Using numeric task ID:', numericId);
+      }
+      // Priority 3: If taskId parameter is numeric, use it
+      else if (!isNaN(Number(taskId))) {
+        numericId = Number(taskId);
+        console.log('Using numeric taskId parameter:', numericId);
+      }
+      // Priority 4: WORKAROUND - Try to find backend task by title match
+      else {
+        console.warn('No numeric ID available, attempting title-based lookup...');
+        try {
+          // Get fresh data from backend and try to match by title
+          const backendTasks = await this.getTasksDirectlyFromBackend();
+          const matchingBackendTask = backendTasks.find(task => 
+            (task.label === currentTask.title || task.title === currentTask.title || task.label === currentTask._backendLabel)
+          );
+          
+          if (matchingBackendTask && !isNaN(Number(matchingBackendTask.id))) {
+            numericId = Number(matchingBackendTask.id);
+            console.log('✅ Found matching backend task by title:', { title: currentTask.title, backendId: numericId });
+          } else {
+            console.error('No valid numeric ID found. Task:', { id: currentTask.id, _backendId: currentTask._backendId, title: currentTask.title, _backendLabel: currentTask._backendLabel });
+            console.error('Backend tasks:', backendTasks.map(t => ({ id: t.id, label: t.label })));
+            
+            // If we have a backend label, this suggests the task exists in backend but we can't update it
+            if (currentTask._backendLabel) {
+              console.warn('⚠️ Task exists in backend but cannot be updated due to missing numeric ID');
+              throw new Error('This task cannot be updated - backend ID unavailable. Please refresh the app.');
+            } else {
+              console.warn('⚠️ Local-only task cannot be synced to backend');
+              throw new Error('This is a local-only task and cannot be synced to the server.');
+            }
+          }
+        } catch (backendError) {
+          console.error('Backend lookup failed:', backendError);
+          throw new Error('Failed to sync task with backend - please try refreshing the app');
+        }
+      }
+      
+      console.log('Final backend ID for update:', numericId);
+      
+      return this.updateTask({ 
+        id: numericId.toString(), // Convert back to string for the updateTask method
+        title: currentTask.title, // Include required label field
+        description: currentTask.description || '', // Include required description field
+        completed,
+        priority: currentTask.priority,
+        category: currentTask.category,
+        ...(completed && { actual_duration: this.calculateTaskDuration(taskId) })
+      });
+    } catch (error: any) {
+      console.error('Error toggling task completion:', error);
+      throw new Error(error.message || 'Failed to toggle task completion');
+    }
+  }
+
+  // Helper method to get tasks directly from backend without transformation
+  private async getTasksDirectlyFromBackend(): Promise<any[]> {
+    try {
+      const response = await apiClient.get<any>(apiConfig.endpoints.getTasks);
+      return Array.isArray(response.data) ? response.data : (response.data.tasks || []);
+    } catch (error) {
+      console.error('Error getting tasks directly from backend:', error);
+      return [];
+    }
   }
 
   // Helper method to get task priority color
@@ -384,22 +682,22 @@ class TasksService {
   // Helper method to get task category icon
   getTaskCategoryIcon(category: string): string {
     switch (category) {
-      case 'work': return 'briefcase';
-      case 'personal': return 'account';
-      case 'study': return 'book-open';
-      case 'health': return 'heart';
-      case 'custom': return 'cog';
-      default: return 'clipboard-text';
+      case 'work': return 'briefcase-outline';
+      case 'personal': return 'account-circle-outline';
+      case 'study': return 'book-open-outline';
+      case 'health': return 'heart-outline';
+      case 'custom': return 'cog-outline';
+      default: return 'clipboard-text-outline';
     }
   }
 
   // Helper method to get task priority icon
   getTaskPriorityIcon(priority: string): string {
     switch (priority) {
-      case 'high': return 'alert';
-      case 'medium': return 'minus';
-      case 'low': return 'arrow-down';
-      default: return 'minus';
+      case 'high': return 'fire';
+      case 'medium': return 'circle-medium';
+      case 'low': return 'chevron-down';
+      default: return 'circle-medium';
     }
   }
 
@@ -469,31 +767,31 @@ class TasksService {
       { 
         value: 'work', 
         label: 'Work', 
-        icon: 'briefcase', 
+        icon: 'briefcase-outline', 
         color: '#2196F3' 
       },
       { 
         value: 'personal', 
         label: 'Personal', 
-        icon: 'account', 
+        icon: 'account-circle-outline', 
         color: '#9C27B0' 
       },
       { 
         value: 'study', 
         label: 'Study', 
-        icon: 'book-open', 
+        icon: 'book-open-outline', 
         color: '#FF9800' 
       },
       { 
         value: 'health', 
         label: 'Health', 
-        icon: 'heart', 
+        icon: 'heart-outline', 
         color: '#4CAF50' 
       },
       { 
         value: 'custom', 
         label: 'Custom', 
-        icon: 'cog', 
+        icon: 'cog-outline', 
         color: '#607D8B' 
       }
     ];
@@ -505,19 +803,19 @@ class TasksService {
       { 
         value: 'high', 
         label: 'High Priority', 
-        icon: 'alert', 
+        icon: 'fire', 
         color: '#FF6B6B' 
       },
       { 
         value: 'medium', 
         label: 'Medium Priority', 
-        icon: 'minus', 
+        icon: 'circle-medium', 
         color: '#FFB020' 
       },
       { 
         value: 'low', 
         label: 'Low Priority', 
-        icon: 'arrow-down', 
+        icon: 'chevron-down', 
         color: '#4CAF50' 
       }
     ];

@@ -48,13 +48,8 @@ const DetailedMetricsScreen = ({ route }: DetailedMetricsScreenProps) => {
       : [0];
     const safeValue = typeof value === 'number' ? Number(Math.max(0, Math.min(3, value)).toFixed(1)) : 0;
     
-    // Format time labels to 12-hour format
-    const formattedLabels = labels.map(label => {
-      const hour = parseInt(label.split(':')[0]);
-      const ampm = hour >= 12 ? 'PM' : 'AM';
-      const hour12 = hour % 12 || 12;
-      return `${hour12}${ampm}`;
-    });
+    // Use labels as-is since they're already in clean "6AM", "10AM" format
+    const formattedLabels = labels;
 
     // Calculate statistics
     const average = Number((safeData.reduce((a, b) => a + b, 0) / safeData.length).toFixed(1));

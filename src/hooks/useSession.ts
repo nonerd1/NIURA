@@ -10,7 +10,7 @@ interface UseSessionReturn {
   eegReadings: EEGReading[];
   
   // Session management
-  startSession: (sessionData: CreateSessionRequest) => Promise<boolean>;
+  startSession: (sessionData: CreateSessionRequest & { session_type?: string }) => Promise<boolean>;
   endSession: () => Promise<boolean>;
   pauseSession: () => void;
   resumeSession: () => void;
@@ -45,7 +45,7 @@ export const useSession = (): UseSessionReturn => {
   const isPaused = useRef(false);
   const pausedDuration = useRef(0);
 
-  const startSession = useCallback(async (sessionData: CreateSessionRequest): Promise<boolean> => {
+  const startSession = useCallback(async (sessionData: CreateSessionRequest & { session_type?: string }): Promise<boolean> => {
     try {
       setIsLoading(true);
       setError(null);
@@ -60,7 +60,7 @@ export const useSession = (): UseSessionReturn => {
         const session: SessionData = {
           id: response.session_id,
           name: sessionData.label,
-          session_type: 'focus', // Default since backend doesn't store this
+          session_type: (sessionData.session_type as any) || 'focus', // Use the actual session type selected
           status: 'active',
           start_time: new Date().toISOString(),
           planned_duration: sessionData.duration,
@@ -116,6 +116,21 @@ export const useSession = (): UseSessionReturn => {
         durationInterval.current = null;
       }
       
+      // Calculate actual duration in minutes
+      const actualDurationMinutes = Math.max(1, Math.floor(sessionDuration / 60)); // Ensure at least 1 minute
+      console.log(`Session duration: ${sessionDuration} seconds (${actualDurationMinutes} minutes)`);
+      
+      // Update session duration in backend
+      try {
+        await sessionService.updateSession(currentSession.id, {
+          duration: actualDurationMinutes
+        });
+        console.log('✅ Session duration updated in backend');
+      } catch (updateError) {
+        console.error('⚠️ Failed to update session duration in backend:', updateError);
+        // Don't fail the entire session end process if backend update fails
+      }
+      
       // Upload EEG data if we have any
       if (eegReadings.length > 0) {
         console.log(`Uploading ${eegReadings.length} EEG readings...`);
@@ -135,7 +150,7 @@ export const useSession = (): UseSessionReturn => {
         ...prev,
         status: 'completed',
         end_time: new Date().toISOString(),
-        actual_duration: Math.floor(sessionDuration / 60), // Convert to minutes
+        actual_duration: actualDurationMinutes,
         eeg_data_count: eegReadings.length
       } : null);
       

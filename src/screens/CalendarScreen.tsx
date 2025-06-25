@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -11,7 +11,8 @@ import {
   SafeAreaView,
   Alert,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  Animated
 } from 'react-native';
 import { Calendar, CalendarProps, DateData } from 'react-native-calendars';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -20,6 +21,8 @@ import { Dimensions } from 'react-native';
 import { useEvents } from '../hooks/useEvents';
 import { eventsService, Event, CreateEventRequest, BackendEventCreate } from '../services/eventsService';
 import { notificationService } from '../services/notificationService';
+import { useSessionHistory } from '../hooks/useSessionHistory';
+import { sessionService } from '../services/sessionService';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -31,6 +34,8 @@ interface Goal {
   startDate: string;
   endDate: string;
   type: 'focus' | 'stress' | 'custom';
+  trackingType: 'sessions' | 'minutes' | 'focus_score' | 'stress_episodes' | 'manual';
+  targetMetric?: string; // e.g., 'focus_sessions', 'meditation_minutes', 'low_stress_days'
 }
 
 interface FocusStressData {
@@ -42,10 +47,130 @@ interface FocusStressData {
   };
 }
 
+// Goal tracking service
+class GoalTrackingService {
+  static calculateGoalProgress(goal: Goal, sessions: any[]): number {
+    if (!sessions || sessions.length === 0) return goal.current;
+    
+    const goalStartDate = new Date(goal.startDate);
+    const goalEndDate = new Date(goal.endDate);
+    
+    // Filter sessions within goal date range
+    const relevantSessions = sessions.filter(session => {
+      const sessionDate = new Date(session.start_time);
+      return sessionDate >= goalStartDate && sessionDate <= goalEndDate;
+    });
+    
+    switch (goal.trackingType) {
+      case 'sessions':
+        // Count completed sessions of specific type
+        if (goal.type === 'focus') {
+          return relevantSessions.filter(s => s.session_type === 'focus').length;
+        } else if (goal.type === 'stress') {
+          return relevantSessions.filter(s => s.session_type === 'meditation').length;
+        } else {
+          return relevantSessions.length;
+        }
+        
+      case 'minutes':
+        // Sum duration of relevant sessions
+        if (goal.type === 'focus') {
+          return relevantSessions
+            .filter(s => s.session_type === 'focus')
+            .reduce((sum, s) => sum + (s.actual_duration || s.planned_duration || 0), 0);
+        } else if (goal.type === 'stress') {
+          return relevantSessions
+            .filter(s => s.session_type === 'meditation')
+            .reduce((sum, s) => sum + (s.actual_duration || s.planned_duration || 0), 0);
+        } else {
+          return relevantSessions
+            .reduce((sum, s) => sum + (s.actual_duration || s.planned_duration || 0), 0);
+        }
+        
+      case 'focus_score':
+        // Count sessions with high focus (avg_focus > 2.0)
+        return relevantSessions.filter(s => (s.avg_focus || 0) > 2.0).length;
+        
+      case 'stress_episodes':
+        // Count days with low stress (avg_stress < 1.5)
+        const lowStressDays = new Set();
+        relevantSessions.forEach(s => {
+          if ((s.avg_stress || 0) < 1.5) {
+            const day = new Date(s.start_time).toDateString();
+            lowStressDays.add(day);
+          }
+        });
+        return lowStressDays.size;
+        
+      default:
+        return goal.current;
+    }
+  }
+  
+  static getDefaultGoals(): Goal[] {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+    
+    return [
+      {
+        id: '1',
+        title: 'Complete 10 focus sessions this month',
+        target: 10,
+        current: 0,
+        startDate: monthStart,
+        endDate: monthEnd,
+        type: 'focus',
+        trackingType: 'sessions',
+        targetMetric: 'focus_sessions'
+      },
+      {
+        id: '2',
+        title: 'Meditate for 60 minutes this month',
+        target: 60,
+        current: 0,
+        startDate: monthStart,
+        endDate: monthEnd,
+        type: 'stress',
+        trackingType: 'minutes',
+        targetMetric: 'meditation_minutes'
+      },
+      {
+        id: '3',
+        title: 'Achieve high focus in 5 sessions',
+        target: 5,
+        current: 0,
+        startDate: monthStart,
+        endDate: monthEnd,
+        type: 'focus',
+        trackingType: 'focus_score',
+        targetMetric: 'high_focus_sessions'
+      }
+    ];
+  }
+}
+
 const CalendarScreen = () => {
+  const { 
+    events, 
+    todaysEvents,
+    createEvent,
+    updateEvent,
+    deleteEvent,
+    refreshEvents,
+    getEventsForDate,
+    isLoading: eventsLoading, 
+    error: eventsError 
+  } = useEvents();
+  
+  const { sessions, isLoading: sessionsLoading, refresh: refreshSessions } = useSessionHistory();
+  
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [modalVisible, setModalVisible] = useState<boolean>(false);
   const [eventModalVisible, setEventModalVisible] = useState<boolean>(false);
+  const [goalModalVisible, setGoalModalVisible] = useState<boolean>(false);
+  const [completedGoals, setCompletedGoals] = useState<Set<string>>(new Set());
+  const [showConfetti, setShowConfetti] = useState<boolean>(false);
   const [newEvent, setNewEvent] = useState<Partial<CreateEventRequest>>({
     date: '',
     title: '',
@@ -55,45 +180,46 @@ const CalendarScreen = () => {
     reminder: true
   });
   
-  const {
-    events,
-    todaysEvents,
-    createEvent,
-    updateEvent,
-    deleteEvent,
-    refreshEvents,
-    getEventsForDate,
-    isLoading,
-    error
-  } = useEvents();
+  const [newGoal, setNewGoal] = useState<Partial<Goal>>({
+    title: '',
+    target: 10,
+    current: 0,
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
+    type: 'focus',
+    trackingType: 'sessions'
+  });
   
   const [goals, setGoals] = useState<Goal[]>([
     {
       id: '1',
-      title: 'Reduce stress episodes by 10%',
+      title: 'Complete Deep Work Sessions',
       target: 10,
-      current: 4,
-      startDate: '2023-07-01',
-      endDate: '2023-07-31',
-      type: 'stress'
+      current: 0,
+      startDate: '2025-01-01',
+      endDate: '2025-12-31',
+      type: 'stress',
+      trackingType: 'sessions'
     },
     {
       id: '2',
-      title: 'Maintain focus above 2.0 for 5 consecutive days',
-      target: 5,
-      current: 3,
-      startDate: '2023-07-05',
-      endDate: '2023-07-15',
-      type: 'focus'
+      title: 'Focus Training Hours',
+      target: 25,
+      current: 0,
+      startDate: '2025-01-01',
+      endDate: '2025-12-31',
+      type: 'focus',
+      trackingType: 'minutes'
     },
     {
       id: '3',
-      title: 'Complete 10 mindful breaks',
-      target: 10,
-      current: 7,
-      startDate: '2023-07-01',
-      endDate: '2023-07-31',
-      type: 'custom'
+      title: 'Mindfulness Practice',
+      target: 15,
+      current: 0,
+      startDate: '2025-01-01',
+      endDate: '2025-12-31',
+      type: 'custom',
+      trackingType: 'sessions'
     }
   ]);
   
@@ -118,49 +244,88 @@ const CalendarScreen = () => {
   const getMarkedDates = () => {
     const markedDates: any = {};
     
+    // First, add event markers
     events.forEach(event => {
-      if (!markedDates[event.date]) {
-        markedDates[event.date] = { marked: true, dotColor: '#4287f5' };
+      const eventDate = event.date;
+      if (eventDate && !markedDates[eventDate]) {
+        markedDates[eventDate] = { marked: true, dotColor: '#4287f5' };
       }
     });
     
+    // Then, add focus/stress heat map colors
     Object.entries(focusStressData).forEach(([date, data]) => {
       const focusLevel = data.focus;
       const stressLevel = data.stress;
       
+      // Calculate a heat map score: higher focus and lower stress = better (green)
+      // Lower focus and higher stress = worse (red)
+      const focusScore = Math.min(Math.max(focusLevel, 0), 5); // Clamp between 0-5
+      const stressScore = Math.min(Math.max(stressLevel, 0), 5); // Clamp between 0-5
+      
+      // Create a combined score: focus is positive, stress is negative
+      const combinedScore = focusScore - stressScore;
+      
+      let textColor = '#FFFFFF';
       let backgroundColor = 'transparent';
       
-      if (focusLevel > 2.0 && stressLevel < 1.5) {
-        backgroundColor = 'rgba(66, 230, 85, 0.1)';
-      } else if (focusLevel < 1.8 && stressLevel > 1.8) {
-        backgroundColor = 'rgba(230, 66, 66, 0.1)';
+      // Create a heat map with 5 color levels
+      if (combinedScore >= 2) {
+        // Very good day: high focus, low stress
+        backgroundColor = '#27ae60'; // Bright green
+        textColor = '#FFFFFF';
+      } else if (combinedScore >= 1) {
+        // Good day: decent focus, moderate stress
+        backgroundColor = '#2ecc71'; // Green
+        textColor = '#FFFFFF';
+      } else if (combinedScore >= -0.5) {
+        // Neutral day: balanced
+        backgroundColor = '#f39c12'; // Orange
+        textColor = '#FFFFFF';
+      } else if (combinedScore >= -1.5) {
+        // Bad day: low focus, high stress
+        backgroundColor = '#e74c3c'; // Red
+        textColor = '#FFFFFF';
       } else {
-        backgroundColor = 'rgba(230, 185, 66, 0.1)';
+        // Very bad day: very low focus, very high stress
+        backgroundColor = '#c0392b'; // Dark red
+        textColor = '#FFFFFF';
       }
       
       markedDates[date] = {
         ...markedDates[date],
         customStyles: {
           container: {
-            backgroundColor
+            backgroundColor,
+            borderRadius: 16,
+            width: 32,
+            height: 32,
+            justifyContent: 'center',
+            alignItems: 'center',
           },
           text: {
-            color: '#FFFFFF',
-            fontWeight: '400'
+            color: textColor,
+            fontWeight: 'bold',
+            fontSize: 16,
           }
         }
       };
       
+      // Handle selected date
       if (date === selectedDate) {
         markedDates[date] = {
           ...markedDates[date],
           selected: true,
-          selectedColor: '#192337',
+          selectedColor: 'transparent', // Don't override our custom color
           customStyles: {
             ...markedDates[date]?.customStyles,
+            container: {
+              ...markedDates[date]?.customStyles?.container,
+              borderWidth: 3,
+              borderColor: '#4287f5',
+            },
             text: {
-              color: '#FFFFFF',
-              fontWeight: 'bold'
+              ...markedDates[date]?.customStyles?.text,
+              fontWeight: 'bold',
             }
           }
         };
@@ -198,67 +363,23 @@ const CalendarScreen = () => {
         
         // Create event data that matches backend schema
         const eventData = {
-          date: combinedDateTime.toISOString(),
-          type: newEvent.type || 'custom',
+          title: newEvent.title,
+          type: newEvent.type as Event['type'],
+          datetime: combinedDateTime.toISOString(),
+          date: eventDate,
+          time: eventTime,
           turnaround_time: durationInMinutes,
-          reminder: newEvent.reminder !== undefined ? newEvent.reminder : true
+          description: `${newEvent.type} event`,
+          priority: 'medium' as const,
+          reminder: newEvent.reminder || false
         };
         
-        console.log('Creating event...', eventData);
+        console.log('Creating event with data:', eventData);
         
-        const createdEvent = await createEvent(eventData as BackendEventCreate);
+        const success = await createEvent(eventData);
         
-        if (createdEvent) {
-          // Handle notifications if reminder is enabled
-          if (newEvent.reminder) {
-            try {
-              // Check if we have notification permissions
-              const hasPermission = await notificationService.checkPermissions();
-              
-              if (!hasPermission) {
-                // Request permissions for the first time
-                const permissionResult = await notificationService.requestPermissions();
-                
-                if (permissionResult.granted) {
-                  // Schedule the notification
-                  const notificationId = await notificationService.scheduleEventNotification(createdEvent);
-                  if (notificationId) {
-                    Alert.alert(
-                      'Event Created!', 
-                      `Your ${createdEvent.title} has been scheduled with a reminder at ${eventsService.formatEventTime(createdEvent.time)}.`
-                    );
-                  }
-                } else {
-                  // Permission denied
-                  Alert.alert(
-                    'Event Created',
-                    'Your event has been created, but you won\'t receive notifications. You can enable notifications in your device Settings > NIURA > Notifications.',
-                    [{ text: 'OK' }]
-                  );
-                }
-              } else {
-                // We already have permission, just schedule the notification
-                const notificationId = await notificationService.scheduleEventNotification(createdEvent);
-                if (notificationId) {
-                  Alert.alert(
-                    'Event Created!', 
-                    `Your ${createdEvent.title} has been scheduled with a reminder at ${eventsService.formatEventTime(createdEvent.time)}.`
-                  );
-                }
-              }
-            } catch (notificationError) {
-              console.error('Error handling notifications:', notificationError);
-              // Don't fail the event creation if notifications fail
-              Alert.alert('Event Created', 'Your event has been created, but there was an issue setting up the reminder.');
-            }
-          } else {
-            // No reminder requested
-            Alert.alert('Event Created!', `Your ${createdEvent.title} has been scheduled.`);
-          }
-          
-          // Refresh events to show the new event
-          await refreshEvents();
-          
+        if (success) {
+          setEventModalVisible(false);
           setNewEvent({
             date: '',
             title: '',
@@ -267,7 +388,8 @@ const CalendarScreen = () => {
             duration: '',
             reminder: true
           });
-          setEventModalVisible(false);
+          
+          Alert.alert('Success', 'Event created successfully!');
         } else {
           Alert.alert('Error', 'Failed to create event. Please try again.');
         }
@@ -278,6 +400,55 @@ const CalendarScreen = () => {
     } else {
       Alert.alert('Missing Information', 'Please fill in all required fields (title, date, and time).');
     }
+  };
+
+  const handleAddGoal = () => {
+    if (newGoal.title && newGoal.target && newGoal.startDate && newGoal.endDate) {
+      const goalData: Goal = {
+        id: Date.now().toString(),
+        title: newGoal.title,
+        target: newGoal.target,
+        current: newGoal.current || 0,
+        startDate: newGoal.startDate,
+        endDate: newGoal.endDate,
+        type: newGoal.type || 'focus',
+        trackingType: newGoal.trackingType || 'sessions'
+      };
+      
+      setGoals(prevGoals => [...prevGoals, goalData]);
+      setGoalModalVisible(false);
+      setNewGoal({
+        title: '',
+        target: 10,
+        current: 0,
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        type: 'focus',
+        trackingType: 'sessions'
+      });
+      
+      Alert.alert('Success', 'Goal added successfully!');
+    } else {
+      Alert.alert('Missing Information', 'Please fill in all required fields.');
+    }
+  };
+
+  const handleDeleteGoal = (goalId: string) => {
+    Alert.alert(
+      'Delete Goal',
+      'Are you sure you want to delete this goal?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setGoals(prevGoals => prevGoals.filter(goal => goal.id !== goalId));
+            Alert.alert('Success', 'Goal deleted successfully!');
+          }
+        }
+      ]
+    );
   };
   
   const renderEventItem = ({ item }: { item: Event }) => {
@@ -367,7 +538,21 @@ const CalendarScreen = () => {
   };
   
   const renderGoalItem = ({ item }: { item: Goal }) => {
-    const progress = item.current / item.target;
+    const rawProgress = item.current / item.target;
+    const progress = Math.min(rawProgress, 1); // Cap at 100%
+    const isCompleted = item.current >= item.target;
+    const isOverAchieved = item.current > item.target;
+    
+    // Debug logging for progress calculation
+    console.log(`📊 Goal "${item.title}":`, {
+      current: item.current,
+      target: item.target,
+      rawProgress: rawProgress,
+      cappedProgress: progress,
+      progressPercent: `${progress * 100}%`,
+      isCompleted,
+      isOverAchieved
+    });
     
     const getGoalIcon = (type: Goal['type']) => {
       switch(type) {
@@ -381,26 +566,66 @@ const CalendarScreen = () => {
     };
     
     return (
-      <View style={styles.goalItem}>
+      <View style={[styles.goalItem, isCompleted && styles.goalItemCompleted]}>
         <View style={styles.goalHeader}>
-          <View style={styles.goalIcon}>
-            <MaterialCommunityIcons 
-              name={getGoalIcon(item.type) as any} 
-              size={20} 
-              color="#FFFFFF" 
+          <View style={styles.goalHeaderLeft}>
+            <View style={[styles.goalIcon, isCompleted && styles.goalIconCompleted]}>
+              <MaterialCommunityIcons 
+                name={isCompleted ? 'check' : getGoalIcon(item.type) as any} 
+                size={20} 
+                color="#FFFFFF" 
+              />
+            </View>
+            <Text style={[styles.goalTitle, isCompleted && styles.goalTitleCompleted]}>
+              {item.title}
+              {isCompleted && (
+                <Text style={styles.completedBadge}> ✅ COMPLETED</Text>
+              )}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.goalDeleteButton}
+            onPress={() => handleDeleteGoal(item.id)}
+          >
+            <MaterialCommunityIcons name="trash-can-outline" size={18} color="#FF6B6B" />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.goalProgress}>
+          <View style={styles.goalProgressHeader}>
+            <Text style={styles.goalProgressText}>
+              {isCompleted ? (
+                <>
+                  {item.target} / {item.target}
+                  {isOverAchieved && (
+                    <Text style={styles.overAchievedText}> (+{item.current - item.target} bonus)</Text>
+                  )}
+                </>
+              ) : (
+                `${item.current} / ${item.target}`
+              )}
+            </Text>
+            <Text style={[styles.goalProgressPercentage, isCompleted && styles.goalProgressPercentageCompleted]}>
+              {Math.round(progress * 100)}%
+            </Text>
+          </View>
+          <View style={styles.goalProgressBar}>
+            <View 
+              style={[
+                styles.goalProgressFill, 
+                { 
+                  width: `${Math.min(progress * 100, 100)}%`,
+                  backgroundColor: isCompleted ? '#27ae60' : '#4287f5'
+                },
+                isCompleted && styles.goalProgressFillCompleted
+              ]} 
             />
           </View>
-          <Text style={styles.goalTitle}>{item.title}</Text>
-        </View>
-        <View style={styles.goalProgressContainer}>
-          <View style={styles.goalProgress}>
-            <View style={[styles.goalProgressFill, { width: `${progress * 100}%` }]} />
-          </View>
-          <Text style={styles.goalProgressText}>
-            {item.current} / {item.target} 
-            <Text style={styles.goalProgressPercentage}>
-              ({Math.round(progress * 100)}%)
-            </Text>
+          <Text style={styles.goalTrackingInfo}>
+            Tracking: {item.trackingType === 'sessions' ? 'Session count' : 
+                      item.trackingType === 'minutes' ? 'Total minutes' :
+                      item.trackingType === 'focus_score' ? 'High focus sessions' :
+                      item.trackingType === 'stress_episodes' ? 'Low stress days' :
+                      'Manual updates'}
           </Text>
         </View>
         <Text style={styles.goalDateRange}>
@@ -508,7 +733,7 @@ const CalendarScreen = () => {
                 </Text>
               ) : (
                 <View style={styles.eventsListContainer}>
-                  {dateData.events.map((item, index) => (
+                  {dateData.events.map((item: Event, index: number) => (
                     <React.Fragment key={`modal-event-${item.id}-${index}`}>
                       {renderEventItem({item})}
                     </React.Fragment>
@@ -661,11 +886,11 @@ const CalendarScreen = () => {
               </View>
               
               <TouchableOpacity
-                style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
+                style={[styles.submitButton, eventsLoading && styles.submitButtonDisabled]}
                 onPress={handleAddEvent}
-                disabled={isLoading}
+                disabled={eventsLoading}
               >
-                {isLoading ? (
+                {eventsLoading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.submitButtonText}>Create Event</Text>
@@ -677,6 +902,354 @@ const CalendarScreen = () => {
       </Modal>
     );
   };
+
+  const renderAddGoalModal = () => {
+    return (
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={goalModalVisible}
+        onRequestClose={() => setGoalModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add New Goal</Text>
+              <TouchableOpacity 
+                style={styles.closeButton} 
+                onPress={() => setGoalModalVisible(false)}
+              >
+                <MaterialCommunityIcons name="close" size={24} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.formContainer}>
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Goal Title</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Enter your goal..."
+                  placeholderTextColor="#7a889e"
+                  value={newGoal.title}
+                  onChangeText={text => setNewGoal({ ...newGoal, title: text })}
+                />
+              </View>
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Goal Type</Text>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false} 
+                  style={styles.typeButtonsScrollContainer}
+                  contentContainerStyle={styles.typeButtonsContainer}
+                >
+                  {[
+                    { value: 'focus', label: 'Focus', icon: 'target', color: '#4287f5' },
+                    { value: 'stress', label: 'Meditation', icon: 'meditation', color: '#9b59b6' },
+                    { value: 'custom', label: 'Custom', icon: 'star', color: '#f39c12' }
+                  ].map((goalType) => (
+                    <TouchableOpacity
+                      key={goalType.value}
+                      style={[
+                        styles.typeButton,
+                        newGoal.type === goalType.value && styles.typeButtonActive,
+                        { borderColor: goalType.color }
+                      ]}
+                      onPress={() => setNewGoal({ ...newGoal, type: goalType.value as any })}
+                    >
+                      <MaterialCommunityIcons 
+                        name={goalType.icon as any} 
+                        size={16} 
+                        color={newGoal.type === goalType.value ? "#FFFFFF" : goalType.color} 
+                      />
+                      <Text style={[
+                        styles.typeButtonText,
+                        newGoal.type === goalType.value && styles.typeButtonTextActive,
+                        { color: newGoal.type === goalType.value ? "#FFFFFF" : goalType.color }
+                      ]}>
+                        {goalType.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Tracking Method</Text>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false} 
+                  style={styles.typeButtonsScrollContainer}
+                  contentContainerStyle={styles.typeButtonsContainer}
+                >
+                  {[
+                    { value: 'sessions', label: 'Sessions', icon: 'counter', color: '#27ae60' },
+                    { value: 'minutes', label: 'Minutes', icon: 'clock-outline', color: '#3498db' },
+                    { value: 'focus_score', label: 'High Focus', icon: 'brain', color: '#e74c3c' },
+                    { value: 'manual', label: 'Manual', icon: 'hand-back-left', color: '#95a5a6' }
+                  ].map((trackingType) => (
+                    <TouchableOpacity
+                      key={trackingType.value}
+                      style={[
+                        styles.typeButton,
+                        newGoal.trackingType === trackingType.value && styles.typeButtonActive,
+                        { borderColor: trackingType.color }
+                      ]}
+                      onPress={() => setNewGoal({ ...newGoal, trackingType: trackingType.value as any })}
+                    >
+                      <MaterialCommunityIcons 
+                        name={trackingType.icon as any} 
+                        size={16} 
+                        color={newGoal.trackingType === trackingType.value ? "#FFFFFF" : trackingType.color} 
+                      />
+                      <Text style={[
+                        styles.typeButtonText,
+                        newGoal.trackingType === trackingType.value && styles.typeButtonTextActive,
+                        { color: newGoal.trackingType === trackingType.value ? "#FFFFFF" : trackingType.color }
+                      ]}>
+                        {trackingType.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Target</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="10"
+                  placeholderTextColor="#7a889e"
+                  value={newGoal.target?.toString()}
+                  onChangeText={text => setNewGoal({ ...newGoal, target: parseInt(text) || 0 })}
+                  keyboardType="numeric"
+                />
+              </View>
+              
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1, marginRight: 8 }]}>
+                  <Text style={styles.formLabel}>Start Date</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#7a889e"
+                    value={newGoal.startDate}
+                    onChangeText={text => setNewGoal({ ...newGoal, startDate: text })}
+                  />
+                </View>
+                
+                <View style={[styles.formGroup, { flex: 1, marginLeft: 8 }]}>
+                  <Text style={styles.formLabel}>End Date</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#7a889e"
+                    value={newGoal.endDate}
+                    onChangeText={text => setNewGoal({ ...newGoal, endDate: text })}
+                  />
+                </View>
+              </View>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.submitButton,
+                  (!newGoal.title || !newGoal.target || !newGoal.startDate || !newGoal.endDate) && styles.submitButtonDisabled
+                ]}
+                onPress={handleAddGoal}
+                disabled={!newGoal.title || !newGoal.target || !newGoal.startDate || !newGoal.endDate}
+              >
+                <Text style={styles.submitButtonText}>Add Goal</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  // Confetti animation values - create once and reuse
+  const confettiAnimations = useRef<Animated.Value[]>([]);
+  
+  // Initialize confetti animations once
+  useEffect(() => {
+    if (confettiAnimations.current.length === 0) {
+      confettiAnimations.current = Array.from({ length: 20 }, () => new Animated.Value(0));
+    }
+  }, []);
+
+  const startConfettiAnimation = () => {
+    // Reset all animations first
+    confettiAnimations.current.forEach(anim => anim.setValue(0));
+    
+    // Start each animation with staggered timing
+    confettiAnimations.current.forEach((animatedValue, index) => {
+      setTimeout(() => {
+        Animated.timing(animatedValue, {
+          toValue: 1,
+          duration: 4000 + Math.random() * 1000, // 4-5 seconds
+          useNativeDriver: true,
+        }).start();
+      }, Math.random() * 800); // Stagger start times up to 800ms
+    });
+  };
+
+  const renderConfetti = () => {
+    if (!showConfetti) return null;
+
+    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F'];
+    
+    return (
+      <View style={styles.confettiContainer} pointerEvents="none">
+        {confettiAnimations.current.map((animatedValue, index) => {
+          const translateY = animatedValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-100, 700], // Fall further down
+          });
+
+          const translateX = animatedValue.interpolate({
+            inputRange: [0, 0.3, 0.7, 1],
+            outputRange: [0, (Math.random() - 0.5) * 80, (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 200],
+          });
+
+          const rotate = animatedValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['0deg', `${360 + Math.random() * 720}deg`],
+          });
+
+          const opacity = animatedValue.interpolate({
+            inputRange: [0, 0.1, 0.8, 1],
+            outputRange: [0, 1, 1, 0],
+          });
+
+          const scale = animatedValue.interpolate({
+            inputRange: [0, 0.2, 0.8, 1],
+            outputRange: [0, 1.3, 1, 0.7],
+          });
+
+          const isCircle = Math.random() > 0.5;
+          const size = 8 + Math.random() * 10; // 8-18px - bigger pieces
+          const color = colors[Math.floor(Math.random() * colors.length)];
+
+          return (
+            <Animated.View
+              key={index}
+              style={[
+                styles.confettiPiece,
+                {
+                  left: `${5 + Math.random() * 90}%`, // Spread across more of the screen
+                  width: size,
+                  height: size,
+                  backgroundColor: color,
+                  borderRadius: isCircle ? size / 2 : Math.random() * 4,
+                  transform: [
+                    { translateY },
+                    { translateX },
+                    { rotate },
+                    { scale },
+                  ],
+                  opacity,
+                }
+              ]}
+            />
+          );
+        })}
+        
+        {/* Completion message */}
+        <View style={styles.confettiMessage}>
+          <Text style={styles.confettiMessageText}>🎉 Goal Completed!</Text>
+          <Text style={styles.confettiSubText}>Keep up the great work!</Text>
+        </View>
+      </View>
+    );
+  };
+
+  // Check for confetti when screen is focused and goals are loaded
+  useEffect(() => {
+    // Simple confetti trigger for completed goals
+    const completedGoalIds = goals.filter(goal => goal.current >= goal.target).map(g => g.id);
+    
+    console.log('🎯 Screen focus confetti check:', {
+      completedGoalIds,
+      currentCompletedSize: completedGoals.size,
+      shouldTrigger: completedGoalIds.length > 0 && completedGoals.size === 0
+    });
+    
+    if (completedGoalIds.length > 0 && completedGoals.size === 0) {
+      console.log('🎉 TRIGGERING WELCOME CONFETTI!');
+      setCompletedGoals(new Set(completedGoalIds));
+      setShowConfetti(true);
+      startConfettiAnimation();
+      
+      setTimeout(() => {
+        setShowConfetti(false);
+        console.log('🎉 Welcome confetti hidden');
+      }, 6000); // Show for 6 seconds to let animation complete
+    }
+  }, [goals, completedGoals.size]);
+
+  // Update goal progress automatically when sessions change
+  useEffect(() => {
+    console.log('🔄 Session update effect triggered:', {
+      sessionsLength: sessions?.length || 0,
+      completedGoalsSize: completedGoals.size,
+      hasSessionData: !!sessions
+    });
+    
+    if (sessions && sessions.length > 0) {
+      console.log('🎯 Updating goal progress with', sessions.length, 'sessions');
+      
+      const newlyCompletedGoals = new Set<string>();
+      const allCompletedGoals = new Set<string>();
+      
+      setGoals(prevGoals => 
+        prevGoals.map(goal => {
+          const newProgress = GoalTrackingService.calculateGoalProgress(goal, sessions);
+          const isCompleted = newProgress >= goal.target;
+          const wasCompleted = completedGoals.has(goal.id);
+          
+          // Track all completed goals
+          if (isCompleted) {
+            allCompletedGoals.add(goal.id);
+          }
+          
+          // Track newly completed goals (not previously completed)
+          if (isCompleted && !wasCompleted) {
+            newlyCompletedGoals.add(goal.id);
+          }
+          
+          console.log(`🎯 Goal "${goal.title}": ${goal.current} → ${newProgress} (${Math.round(newProgress/goal.target*100)}%) ${isCompleted ? '✅' : ''}`);
+          
+          return {
+            ...goal,
+            current: newProgress
+          };
+        })
+      );
+      
+      // Only trigger confetti for newly completed goals (not welcome confetti)
+      if (newlyCompletedGoals.size > 0) {
+        console.log(`🎉 TRIGGERING CONFETTI for newly completed goals:`, Array.from(newlyCompletedGoals));
+        setCompletedGoals(prev => new Set([...prev, ...newlyCompletedGoals]));
+        setShowConfetti(true);
+        startConfettiAnimation();
+        
+        setTimeout(() => {
+          setShowConfetti(false);
+          console.log('🎉 New completion confetti hidden');
+        }, 6000); // Show for 6 seconds
+      } else if (allCompletedGoals.size > 0) {
+        // Update completed goals set without confetti (welcome confetti handled separately)
+        console.log('📝 Updating completed goals without confetti');
+        setCompletedGoals(prev => new Set([...prev, ...allCompletedGoals]));
+      }
+    }
+  }, [sessions]);
+
+  // Refresh data when screen loads
+  useEffect(() => {
+    refreshEvents();
+    refreshSessions();
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -724,15 +1297,15 @@ const CalendarScreen = () => {
           
           <View style={styles.calendarLegend}>
             <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: 'rgba(66, 230, 85, 0.1)' }]} />
+              <View style={[styles.legendColor, { backgroundColor: '#27ae60' }]} />
               <Text style={styles.legendText}>High focus, low stress</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: 'rgba(230, 185, 66, 0.1)' }]} />
+              <View style={[styles.legendColor, { backgroundColor: '#f39c12' }]} />
               <Text style={styles.legendText}>Balanced</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: 'rgba(230, 66, 66, 0.1)' }]} />
+              <View style={[styles.legendColor, { backgroundColor: '#e74c3c' }]} />
               <Text style={styles.legendText}>High stress, low focus</Text>
             </View>
           </View>
@@ -744,16 +1317,16 @@ const CalendarScreen = () => {
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={isLoading}
+              refreshing={eventsLoading}
               onRefresh={refreshEvents}
               tintColor="#4287f5"
             />
           }
         >
-          {error && (
+          {eventsError && (
             <View style={styles.errorContainer}>
               <MaterialCommunityIcons name="alert-circle" size={24} color="#FF6B6B" />
-              <Text style={styles.errorText}>{error}</Text>
+              <Text style={styles.errorText}>{eventsError}</Text>
               <TouchableOpacity style={styles.retryButton} onPress={refreshEvents}>
                 <Text style={styles.retryButtonText}>Retry</Text>
               </TouchableOpacity>
@@ -776,7 +1349,7 @@ const CalendarScreen = () => {
               </TouchableOpacity>
             </View>
             
-            {isLoading && todaysEvents.length === 0 ? (
+            {eventsLoading && todaysEvents.length === 0 ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#4287f5" />
                 <Text style={styles.loadingText}>Loading events...</Text>
@@ -803,7 +1376,10 @@ const CalendarScreen = () => {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Goal Progress</Text>
-              <TouchableOpacity style={styles.addButton}>
+              <TouchableOpacity 
+                style={styles.addButton}
+                onPress={() => setGoalModalVisible(true)}
+              >
                 <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
                 <Text style={styles.addButtonText}>Add Goal</Text>
               </TouchableOpacity>
@@ -821,6 +1397,8 @@ const CalendarScreen = () => {
         
         {renderDetailModal()}
         {renderAddEventModal()}
+        {renderAddGoalModal()}
+        {renderConfetti()}
       </View>
     </SafeAreaView>
   );
@@ -1030,7 +1608,13 @@ const styles = StyleSheet.create({
   goalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  goalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   goalIcon: {
     width: 32,
@@ -1047,26 +1631,47 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     flex: 1,
   },
-  goalProgressContainer: {
-    marginBottom: 8,
+  goalDeleteButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 107, 107, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
   },
   goalProgress: {
-    height: 8,
-    backgroundColor: '#313e5c',
-    borderRadius: 4,
     marginBottom: 8,
-    overflow: 'hidden',
   },
-  goalProgressFill: {
-    height: '100%',
-    backgroundColor: '#4287f5',
-    borderRadius: 4,
+  goalProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   goalProgressText: {
     fontSize: 14,
     color: '#FFFFFF',
   },
   goalProgressPercentage: {
+    color: '#7a889e',
+  },
+  goalProgressBar: {
+    height: 8,
+    backgroundColor: '#313e5c',
+    borderRadius: 4,
+    marginBottom: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  goalProgressFill: {
+    height: '100%',
+    backgroundColor: '#4287f5',
+    borderRadius: 4,
+    minWidth: 2, // Ensure there's always some visible progress
+  },
+  goalTrackingInfo: {
+    fontSize: 12,
     color: '#7a889e',
   },
   goalDateRange: {
@@ -1172,21 +1777,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
   },
-  typeButtonsScrollContainer: {
-    // Basic ScrollView container styles
-  },
   typeButtonsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  typeButtonsScrollContainer: {
+    maxHeight: 50,
   },
   typeButton: {
-    backgroundColor: '#192337',
-    borderRadius: 8,
-    padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     marginHorizontal: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#4287f5',
+    backgroundColor: 'transparent',
   },
   typeButtonActive: {
     backgroundColor: '#4287f5',
@@ -1291,6 +1898,86 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: {
     backgroundColor: '#7a889e',
+  },
+  goalItemCompleted: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  goalIconCompleted: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  goalTitleCompleted: {
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  completedBadge: {
+    color: '#4287f5',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  goalProgressPercentageCompleted: {
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  goalProgressFillCompleted: {
+    backgroundColor: '#27ae60',
+  },
+  overAchievedText: {
+    color: '#F39C12',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  confettiContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '100%',
+    width: '100%',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  confettiPiece: {
+    position: 'absolute',
+    top: -50,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  confettiMessage: {
+    position: 'absolute',
+    top: 120,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(66, 135, 245, 0.95)',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 10,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  confettiMessageText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 6,
+  },
+  confettiSubText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    opacity: 0.9,
   },
 });
 
