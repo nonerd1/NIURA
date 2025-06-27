@@ -343,6 +343,171 @@ class AuthService {
     }
   }
 
+  // 🔧 NEW: Get User Profile - GET /api/profile
+  async getUserProfile(): Promise<{
+    id: string;
+    email: string;
+    full_name: string;
+    gender: string;
+    created_at: string;
+  }> {
+    try {
+      console.log('Fetching user profile from backend...');
+      
+      // Debug: Check if we have an auth token
+      const token = await AsyncStorage.getItem('authToken');
+      console.log('🔑 Auth token available:', token ? `${token.substring(0, 20)}...` : 'NO TOKEN');
+      
+      const response = await apiClient.get<{
+        id: string;
+        email: string;
+        full_name: string;
+        gender: string;
+        created_at: string;
+      }>('/profile');
+      
+      console.log('✅ User profile fetched successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error fetching user profile:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        url: error.config?.url
+      });
+      throw new Error(error.message || 'Failed to fetch user profile. Please try again.');
+    }
+  }
+
+  // 🔧 NEW: Get User Profile Stats - GET /api/profile/stats
+  async getUserProfileStats(): Promise<{
+    sessions: number;
+    focus_time: string;
+    avg_score: string;
+  }> {
+    try {
+      console.log('Fetching user profile statistics from backend...');
+      
+      // Debug: Check if we have an auth token
+      const token = await AsyncStorage.getItem('authToken');
+      console.log('🔑 Auth token available:', token ? `${token.substring(0, 20)}...` : 'NO TOKEN');
+      
+      const response = await apiClient.get<{
+        sessions: number;
+        focus_time: string;
+        avg_score: string;
+      }>('/profile/stats');
+      
+      console.log('✅ User profile stats fetched successfully:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error fetching user profile stats:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        url: error.config?.url
+      });
+      throw new Error(error.message || 'Failed to fetch profile statistics. Please try again.');
+    }
+  }
+
+  // 🔧 NEW: Update User Profile - PUT /api/profile
+  async updateProfile(updates: {
+    full_name?: string;
+    gender?: string;
+  }): Promise<{
+    message: string;
+    user: {
+      id: string;
+      email: string;
+      full_name: string;
+      gender: string;
+    };
+  }> {
+    try {
+      console.log('Updating user profile:', updates);
+      
+      const response = await apiClient.put<{
+        message: string;
+        user: {
+          id: string;
+          email: string;
+          full_name: string;
+          gender: string;
+        };
+      }>('/profile', updates);
+      
+      console.log('✅ User profile updated successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('Error updating user profile:', error);
+      throw new Error(error.message || 'Failed to update profile. Please try again.');
+    }
+  }
+
+  // 🔧 NEW: Get User Preferences - GET /api/profile/preferences
+  async getUserPreferences(): Promise<{
+    focus_alert_threshold: number;
+    stress_alert_threshold: number;
+    notifications_enabled: boolean;
+    dark_mode_enabled: boolean;
+  }> {
+    try {
+      console.log('Fetching user preferences from backend...');
+      
+      const response = await apiClient.get<{
+        focus_alert_threshold: number;
+        stress_alert_threshold: number;
+        notifications_enabled: boolean;
+        dark_mode_enabled: boolean;
+      }>('/profile/preferences');
+      
+      console.log('✅ User preferences fetched successfully:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error fetching user preferences:', error);
+      throw new Error(error.message || 'Failed to fetch user preferences. Please try again.');
+    }
+  }
+
+  // 🔧 NEW: Update User Preferences - PUT /api/profile/preferences
+  async updateUserPreferences(preferences: {
+    focus_alert_threshold?: number;
+    stress_alert_threshold?: number;
+    notifications_enabled?: boolean;
+    dark_mode_enabled?: boolean;
+  }): Promise<{
+    message: string;
+    preferences: {
+      focus_alert_threshold: number;
+      stress_alert_threshold: number;
+      notifications_enabled: boolean;
+      dark_mode_enabled: boolean;
+    };
+  }> {
+    try {
+      console.log('Updating user preferences:', preferences);
+      
+      const response = await apiClient.put<{
+        message: string;
+        preferences: {
+          focus_alert_threshold: number;
+          stress_alert_threshold: number;
+          notifications_enabled: boolean;
+          dark_mode_enabled: boolean;
+        };
+      }>('/profile/preferences', preferences);
+      
+      console.log('✅ User preferences updated successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('Error updating user preferences:', error);
+      throw new Error(error.message || 'Failed to update preferences. Please try again.');
+    }
+  }
+
   private async storeSession(user: User): Promise<void> {
     try {
       await AsyncStorage.setItem('user', JSON.stringify(user));

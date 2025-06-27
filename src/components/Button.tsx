@@ -12,6 +12,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import theme from '../theme/theme';
 import { colors } from '../theme/colors';
+import { useTheme } from '../context/ThemeContext';
 
 type ButtonVariant = 'filled' | 'outlined' | 'ghost';
 type ButtonSize = 'small' | 'medium' | 'large';
@@ -40,6 +41,8 @@ const Button: React.FC<ButtonProps> = ({
   style,
   ...rest
 }) => {
+  const { getScaledFontSize } = useTheme();
+
   const getGradientColors = (): [string, string] => {
     switch (color) {
       case 'primary': return [colors.primary.main, colors.primary.light];
@@ -109,15 +112,15 @@ const Button: React.FC<ButtonProps> = ({
   const getTextStyles = (): TextStyle => {
     const sizeStyles: Record<ButtonSize, TextStyle> = {
       small: {
-        fontSize: theme.fontSizes.sm,
+        fontSize: getScaledFontSize(theme.fontSizes.sm),
         fontWeight: theme.fontWeights.medium as TextStyle['fontWeight'],
       },
       medium: {
-        fontSize: theme.fontSizes.md,
+        fontSize: getScaledFontSize(theme.fontSizes.md),
         fontWeight: theme.fontWeights.semibold as TextStyle['fontWeight'],
       },
       large: {
-        fontSize: theme.fontSizes.lg,
+        fontSize: getScaledFontSize(theme.fontSizes.lg),
         fontWeight: theme.fontWeights.semibold as TextStyle['fontWeight'],
       },
     };

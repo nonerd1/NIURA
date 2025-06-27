@@ -35,7 +35,10 @@ export const apiConfig = {
     // User management endpoints  
     deleteUser: '/users/{id}',
     updateUser: '/users/{id}',
-    getUserProfile: '/users/profile',
+    getUserProfile: '/profile',
+    getUserProfileStats: '/profile/stats',
+    getUserPreferences: '/profile/preferences',
+    updateUserPreferences: '/profile/preferences',
     
     // EEG-related endpoints
     getCurrentGoals: '/eeg/current-goals',

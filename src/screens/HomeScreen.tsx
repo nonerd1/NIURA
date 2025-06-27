@@ -1,21 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TouchableOpacity, Platform, Alert, Linking } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  ScrollView, 
+  TouchableOpacity, 
+  Alert,
+  Dimensions,
+  ActivityIndicator,
+  RefreshControl,
+  Pressable,
+  Platform,
+  Linking
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { LineChart } from 'react-native-chart-kit';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, ClipPath, Circle, Text as SvgText, Rect, Polygon } from 'react-native-svg';
 import MetricsGraph from '../components/MetricsGraph';
 import SpeedometerMetrics from '../components/SpeedometerMetrics';
-import { colors } from '../theme/colors';
 import { AnimatedCircularProgress } from 'react-native-circular-progress';
 import { useDemo } from '../context/DemoContext';
 import { NativeEventEmitter, NativeModules, PermissionsAndroid } from 'react-native';
-import { useBLE } from '../context/BLEContext';
+import { EEGBLEService } from '../services/EEGBLEService';
 import { logDebug } from '../utils/logger';
 import { databaseService } from '../services/database';
-import { eegService, Goal, Recommendation, MusicSuggestion, FocusTimeData } from '../services/eegService';
+import { eegService, Recommendation, MusicSuggestion, FocusTimeData } from '../services/eegService';
+import { useGoals } from '../hooks/useGoals';
+import { Goal, goalsService } from '../services/goalsService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { notificationService } from '../services/notificationService';
+import { useTheme } from '../context/ThemeContext';
+import { RootStackParamList, RootTabParamList } from '../types/navigation';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 type Tab = 'focus' | 'stress' | 'mental';
 
@@ -30,44 +50,8 @@ type MetricDataPoint = {
   type: 'attention' | 'stress';
 };
 
-// Add type for navigation params
-type RootStackParamList = {
-  DetailedMetrics: {
-    focusData: number[];
-    stressData: number[];
-    labels: string[];
-    lastUpdated: string;
-    focusLevel: string;
-    focusValue: number;
-    stressLevel: string;
-    stressValue: number;
-    focusColor: string;
-    stressColor: string;
-    mentalReadinessScore: number;
-    mentalReadinessLevel: string;
-    correlationData: {
-      highFocusHighStress: number;
-      highFocusLowStress: number;
-      lowFocusHighStress: number;
-      lowFocusLowStress: number;
-    };
-    recommendations: string[];
-  };
-  MentalReadinessDetails: {
-    data: number[];
-    labels: string[];
-    color: string;
-    lastUpdated: string;
-    score: number;
-    level: string;
-  };
-  Bluetooth: undefined;
-  Profile: undefined;
-  UIKit: undefined;
-  Calendar: undefined;
-};
-
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+type TabNavigationProp = BottomTabNavigationProp<RootTabParamList, 'Home'>;
+type StackNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 // Mock data generator - Replace this with real data from your backend
 const generateMockData = (hours: number) => {
@@ -112,7 +96,7 @@ const generateValueUpdate = (currentValue: number) => {
 // Move toPercentage function outside of HomeScreen component so it's accessible to all components
 const toPercentage = (value: number) => Math.round((value / 3) * 100);
 
-const BrainIcon = ({ score, size = 48 }: { score: number; size?: number }) => {
+const BrainIcon = ({ score, size = 48, colors }: { score: number; size?: number; colors: any }) => {
   const fillPercentage = score / 100;
   const fillHeight = 400 - (400 * fillPercentage);
   
@@ -161,7 +145,7 @@ const BrainIcon = ({ score, size = 48 }: { score: number; size?: number }) => {
   );
 };
 
-const RealTimeMetrics = ({ focusValue, stressValue }: { focusValue: number, stressValue: number }) => {
+const RealTimeMetrics = ({ focusValue, stressValue, styles }: { focusValue: number, stressValue: number, styles: any }) => {
   return (
     <View style={styles.realTimeMetricsContainer}>
       <Text style={styles.realTimeMetricsTitle}>Real-Time Metrics</Text>
@@ -175,756 +159,7 @@ const RealTimeMetrics = ({ focusValue, stressValue }: { focusValue: number, stre
   );
 };
 
-const TodaysMetrics = ({ focusData, stressData, focusValue, stressValue }: {
-  focusData: MetricsData,
-  stressData: MetricsData,
-  focusValue: number,
-  stressValue: number
-}) => {
-  const navigation = useNavigation<NavigationProp>();
-  const [aggregateData, setAggregateData] = useState<any>(null);
-  const [isLoadingAggregate, setIsLoadingAggregate] = useState(true);
-  
-  const now = new Date();
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  const displayHours = hours % 12 || 12; // Convert to 12-hour format
-  const lastUpdated = `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-
-  useEffect(() => {
-    loadTodaysData();
-  }, []);
-
-  const loadTodaysData = async () => {
-    try {
-      const data = await eegService.getEEGAggregate('hourly');
-      const formattedData = eegService.formatAggregateForChart(data);
-      setAggregateData(formattedData);
-    } catch (error) {
-      console.error('Error loading aggregate data:', error);
-      // Keep using fallback data generation on error
-    } finally {
-      setIsLoadingAggregate(false);
-    }
-  };
-  
-  const getFocusLevel = (value: number) => {
-    if (value >= 2.5) return 'HIGH';
-    if (value >= 1.5) return 'MEDIUM';
-    return 'LOW';
-  };
-
-  // Process backend data to show clean 4-hour intervals with real data
-  const processBackendDataFor4HourIntervals = (backendData: any) => {
-    if (!backendData || !backendData.labels || !backendData.focusData || !backendData.stressData) {
-      return generateFallbackData();
-    }
-
-    // Debug: Log the backend data to see what we're working with
-    console.log('🔍 Backend data labels:', backendData.labels);
-    console.log('🔍 Backend focus data:', backendData.focusData);
-    console.log('🔍 Backend stress data:', backendData.stressData);
-
-    // Take evenly spaced data points and assign clean chronological labels
-    const dataLength = backendData.labels.length;
-    const currentHour = now.getHours();
-    
-    // Define our target time slots based on current time
-    const allTimeSlots = [
-      { hour: 6, label: '6AM' },
-      { hour: 10, label: '10AM' },
-      { hour: 14, label: '2PM' },
-      { hour: 18, label: '6PM' }
-    ];
-    
-    // Only include time slots that have passed
-    const availableSlots = allTimeSlots.filter(slot => currentHour >= slot.hour);
-    const slotsToShow = availableSlots.length > 0 ? availableSlots : [allTimeSlots[0]];
-    
-    // Calculate which backend data indices to use for each time slot
-    const processedLabels: string[] = [];
-    const processedFocusData: number[] = [];
-    const processedStressData: number[] = [];
-    
-    slotsToShow.forEach((slot, index) => {
-      // Calculate the backend data index for this time slot
-      // Distribute evenly across available backend data
-      let backendIndex;
-      if (slotsToShow.length === 1) {
-        // If only one slot, use the last data point
-        backendIndex = dataLength - 1;
-      } else {
-        // Distribute evenly across the data
-        backendIndex = Math.floor((index * (dataLength - 1)) / (slotsToShow.length - 1));
-      }
-      
-      // Ensure index is within bounds
-      backendIndex = Math.max(0, Math.min(dataLength - 1, backendIndex));
-      
-      processedLabels.push(slot.label);
-      processedFocusData.push(backendData.focusData[backendIndex] || 0);
-      processedStressData.push(backendData.stressData[backendIndex] || 0);
-      
-      console.log(`✅ Using ${slot.label} with backend data from index ${backendIndex}: focus=${backendData.focusData[backendIndex]}, stress=${backendData.stressData[backendIndex]}`);
-    });
-    
-    return {
-      labels: processedLabels,
-      focusData: processedFocusData,
-      stressData: processedStressData
-    };
-  };
-
-  // Fallback data generation (only used when no backend data)
-  const generateFallbackData = () => {
-    const currentHour = now.getHours();
-    const timeSlots = [
-      { hour: 6, label: '6AM' },
-      { hour: 10, label: '10AM' }, 
-      { hour: 14, label: '2PM' },
-      { hour: 18, label: '6PM' }
-    ];
-    
-    const availableSlots = timeSlots.filter(slot => currentHour >= slot.hour);
-    const slotsToShow = availableSlots.length > 0 ? availableSlots : [timeSlots[0]];
-    
-    const labels = slotsToShow.map(slot => slot.label);
-    const focusData: number[] = [];
-    const stressData: number[] = [];
-    
-    slotsToShow.forEach(slot => {
-      let baseFocusValue = focusValue;
-      if (slot.hour === 6) baseFocusValue = focusValue * 0.9;
-      else if (slot.hour === 10) baseFocusValue = focusValue * 1.2;
-      else if (slot.hour === 14) baseFocusValue = focusValue * 1.0;
-      else if (slot.hour === 18) baseFocusValue = focusValue * 0.7;
-      
-      const focusVariation = (Math.random() - 0.5) * 0.4;
-      focusData.push(Math.max(0, Math.min(3, baseFocusValue + focusVariation)));
-      
-      let baseStressValue = stressValue;
-      if (slot.hour === 6) baseStressValue = stressValue * 0.8;
-      else if (slot.hour === 10) baseStressValue = stressValue * 1.0;
-      else if (slot.hour === 14) baseStressValue = stressValue * 1.1;
-      else if (slot.hour === 18) baseStressValue = stressValue * 1.2;
-      
-      const stressVariation = (Math.random() - 0.5) * 0.3;
-      stressData.push(Math.max(0, Math.min(3, baseStressValue + stressVariation)));
-    });
-    
-    return { labels, focusData, stressData };
-  };
-
-  // Use backend data if available, otherwise use fallback
-  const chartData = aggregateData ? processBackendDataFor4HourIntervals(aggregateData) : generateFallbackData();
-
-  return (
-    <View style={styles.todaysMetricsContainer}>
-      <Text style={styles.todaysMetricsTitle}>Today's Metrics</Text>
-      
-      <View style={styles.chartHeader}>
-        <Text style={styles.lastUpdated}>
-          {isLoadingAggregate ? 'Loading...' : `Last updated ${lastUpdated}`}
-        </Text>
-        <View style={styles.currentValueContainer}>
-          <Text style={[styles.currentLevel, { color: '#4287f5' }]}>
-            {getFocusLevel(focusValue)} {focusValue.toFixed(1)}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.chartContainer}>
-        <MetricsGraph
-          labels={chartData.labels}
-          datasets={[
-            {
-              data: chartData.focusData,
-              color: '#4287f5',
-              label: 'Focus',
-            },
-            {
-              data: chartData.stressData,
-              color: '#FFA500',
-              label: 'Stress',
-            },
-          ]}
-          type="focus"
-          hideHeader={true}
-          onPress={() => {
-            try {
-              navigation.navigate('DetailedMetrics', {
-                focusData: chartData.focusData,
-                stressData: chartData.stressData,
-                labels: chartData.labels,
-                lastUpdated: lastUpdated,
-                focusLevel: getFocusLevel(focusValue),
-                focusValue: focusValue,
-                stressLevel: getFocusLevel(stressValue),
-                stressValue: stressValue,
-                focusColor: '#4287f5',
-                stressColor: '#FFA500',
-                mentalReadinessScore: 75,
-                mentalReadinessLevel: 'Good',
-                correlationData: {
-                  highFocusHighStress: 25,
-                  highFocusLowStress: 35,
-                  lowFocusHighStress: 15,
-                  lowFocusLowStress: 25
-                },
-                recommendations: [
-                  'Take regular breaks every 25 minutes',
-                  'Try deep breathing exercises',
-                  'Consider meditation sessions'
-                ]
-              });
-            } catch (error) {
-              console.error('Error navigating to detailed metrics:', error);
-            }
-          }}
-        />
-      </View>
-      
-      {aggregateData && (
-        <Text style={styles.dataSourceIndicator}>
-          Showing real data ({aggregateData.totalSamples} samples) - 4hr intervals
-        </Text>
-      )}
-    </View>
-  );
-};
-
-const BestFocusTime = () => {
-  const [focusTimeData, setFocusTimeData] = useState<FocusTimeData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    loadBestFocusTime();
-  }, []);
-
-  const loadBestFocusTime = async () => {
-    try {
-      const data = await eegService.getBestFocusTime();
-      setFocusTimeData(data);
-    } catch (error) {
-      console.error('Error loading best focus time:', error);
-      // Keep default data on error
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const displayTimeRange = focusTimeData 
-    ? eegService.formatTimeRange(focusTimeData.best_time_start, focusTimeData.best_time_end)
-    : '10:00 AM - 12:00 PM';
-
-  const displayDescription = focusTimeData
-    ? `Based on your focus patterns, you're most productive during these hours (${focusTimeData.focus_score}% focus score)`
-    : "Based on your focus patterns, you're most productive during these hours";
-
-  return (
-    <View style={styles.bestFocusContainer}>
-      <View style={styles.bestFocusHeader}>
-        <MaterialCommunityIcons name="timer-outline" size={20} color={colors.text.primary} />
-        <Text style={styles.bestFocusTitle}>Best Time to Focus</Text>
-      </View>
-      <View style={styles.bestFocusContent}>
-        <LinearGradient
-          colors={[colors.primary.main, colors.primary.light]}
-          style={styles.timeChip}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-        >
-          <Text style={styles.timeText}>{displayTimeRange}</Text>
-        </LinearGradient>
-        <Text style={styles.bestFocusDescription}>
-          {displayDescription}
-        </Text>
-        {focusTimeData && (
-          <Text style={styles.confidenceText}>
-            Confidence: {focusTimeData.confidence}%
-          </Text>
-        )}
-      </View>
-    </View>
-  );
-};
-
-const MoodMusic = () => {
-  const [musicSuggestions, setMusicSuggestions] = useState<MusicSuggestion[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    loadMusicSuggestions();
-  }, []);
-
-  const loadMusicSuggestions = async () => {
-    try {
-      const suggestions = await eegService.getMusicSuggestion();
-      setMusicSuggestions(suggestions);
-    } catch (error) {
-      console.error('Error loading music suggestions:', error);
-      // Keep default data on error
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handlePlayMusic = async () => {
-    try {
-      const displaySuggestion = musicSuggestions.length > 0 ? musicSuggestions[0] : null;
-      const musicUrl = displaySuggestion?.preview_url;
-
-      if (!musicUrl) {
-        Alert.alert(
-          'Music Suggestion', 
-          `Try listening to: ${displaySuggestion?.title || 'Focus music'}\n\nRecommended for: ${displaySuggestion?.recommended_for || 'concentration'}`,
-          [
-            { text: 'OK', style: 'default' }
-          ]
-        );
-        return;
-      }
-
-      // Check if URL can be opened
-      const supported = await Linking.canOpenURL(musicUrl);
-      
-      if (supported) {
-        await Linking.openURL(musicUrl);
-      } else {
-        // Fallback: Show music suggestion info
-        Alert.alert(
-          'Music Suggestion', 
-          `🎵 ${displaySuggestion?.title || 'Focus Beats'}\n\n${displaySuggestion?.artist || displaySuggestion?.genre || 'Lo-fi beats to help you concentrate'}\n\nRecommended for: ${displaySuggestion?.recommended_for || 'focus'}`,
-          [
-            { text: 'Got it!', style: 'default' }
-          ]
-        );
-      }
-    } catch (error) {
-      console.error('Error opening music:', error);
-      
-      // Show music info as fallback
-      const displaySuggestion = musicSuggestions.length > 0 ? musicSuggestions[0] : null;
-      Alert.alert(
-        'Music Suggestion', 
-        `🎵 ${displaySuggestion?.title || 'Focus Beats'}\n\n${displaySuggestion?.artist || displaySuggestion?.genre || 'Lo-fi beats to help you concentrate'}\n\nRecommended for: ${displaySuggestion?.recommended_for || 'focus'}`,
-        [
-          { text: 'Thanks!', style: 'default' }
-        ]
-      );
-    }
-  };
-
-  const displaySuggestion = musicSuggestions.length > 0 ? musicSuggestions[0] : null;
-  const defaultTitle = "Focus Beats";
-  const defaultDescription = "Lo-fi beats to help you concentrate";
-
-  return (
-    <View style={styles.moodMusicContainer}>
-      <View style={styles.moodMusicHeader}>
-        <Ionicons name="musical-notes" size={20} color={colors.text.primary} />
-        <Text style={styles.moodMusicTitle}>Music for You</Text>
-      </View>
-      <View style={styles.moodMusicContent}>
-        <TouchableOpacity onPress={handlePlayMusic}>
-          <LinearGradient
-            colors={[colors.primary.main, colors.primary.light]}
-            style={styles.musicCard}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            <View style={styles.musicInfo}>
-              <Text style={styles.musicType}>
-                {displaySuggestion?.title || defaultTitle}
-              </Text>
-              <Text style={styles.musicDescription}>
-                {displaySuggestion?.artist || displaySuggestion?.genre || defaultDescription}
-              </Text>
-              {displaySuggestion?.recommended_for && (
-                <Text style={styles.musicMood}>
-                  For {displaySuggestion.recommended_for}
-                </Text>
-              )}
-              <Text style={styles.tapToPlay}>Tap to play or get suggestion</Text>
-            </View>
-            <View style={styles.playButton}>
-              <Ionicons 
-                name="play-circle" 
-                size={36} 
-                color={colors.text.primary} 
-              />
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
-
-// Add Calendar Goal interface before the Tasks component
-interface CalendarGoal {
-  id: string;
-  title: string;
-  target: number;
-  current: number;
-  startDate: string;
-  endDate: string;
-  type: 'focus' | 'stress' | 'custom';
-  trackingType: 'sessions' | 'minutes' | 'focus_score' | 'stress_episodes' | 'manual';
-  targetMetric?: string;
-}
-
-const Tasks = () => {
-  const [goals, setGoals] = useState<CalendarGoal[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const navigation = useNavigation<NavigationProp>();
-
-  useEffect(() => {
-    loadCurrentGoals();
-  }, []);
-
-  const loadCurrentGoals = async () => {
-    try {
-      // Use the same goals as Calendar screen to ensure consistency
-      const calendarGoals: CalendarGoal[] = [
-        {
-          id: '1',
-          title: 'Complete Deep Work Sessions',
-          target: 10,
-          current: 0,
-          startDate: '2025-01-01',
-          endDate: '2025-12-31',
-          type: 'stress',
-          trackingType: 'sessions'
-        },
-        {
-          id: '2',
-          title: 'Focus Training Hours',
-          target: 25,
-          current: 25, // This matches the completed goal in calendar
-          startDate: '2025-01-01',
-          endDate: '2025-12-31',
-          type: 'focus',
-          trackingType: 'minutes'
-        },
-        {
-          id: '3',
-          title: 'Mindfulness Practice',
-          target: 15,
-          current: 10,
-          startDate: '2025-01-01',
-          endDate: '2025-12-31',
-          type: 'custom',
-          trackingType: 'sessions'
-        }
-      ];
-      setGoals(calendarGoals);
-    } catch (error) {
-      console.error('Error loading current goals:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleViewAllGoals = () => {
-    // Navigate to Calendar screen with goals tab focused
-    navigation.navigate('Calendar' as any);
-  };
-
-  const renderGoal = (goal: CalendarGoal, index: number) => {
-    const progress = Math.min((goal.current / goal.target) * 100, 100);
-    const isCompleted = goal.current >= goal.target;
-    
-    return (
-      <View key={goal.id || index} style={[styles.taskItem, isCompleted && styles.taskItemCompleted]}>
-        <View style={styles.taskHeader}>
-          <Text style={[styles.taskTitle, isCompleted && styles.taskTitleCompleted]}>
-            {goal.title}
-            {isCompleted && <Text style={styles.completedBadge}> ✅</Text>}
-          </Text>
-          <Text style={styles.taskProgress}>
-            {goal.current}/{goal.target}
-          </Text>
-        </View>
-        <View style={styles.progressBarBackground}>
-          <LinearGradient
-            colors={isCompleted ? ['#27ae60', '#2ecc71'] : [colors.primary.main, colors.primary.light]}
-            style={[styles.progressBarFill, { width: `${progress}%` }]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          />
-        </View>
-        <Text style={styles.goalTrackingInfo}>
-          Tracking: {goal.trackingType === 'sessions' ? 'Session count' : 
-                    goal.trackingType === 'minutes' ? 'Total minutes' :
-                    goal.trackingType === 'focus_score' ? 'High focus sessions' :
-                    goal.trackingType === 'stress_episodes' ? 'Low stress days' :
-                    'Manual updates'}
-        </Text>
-      </View>
-    );
-  };
-
-  const displayGoals = goals.slice(0, 3); // Show top 3 goals
-
-  return (
-    <View style={styles.tasksContainer}>
-      <View style={styles.tasksHeader}>
-        <View style={styles.tasksHeaderLeft}>
-          <Ionicons name="list" size={20} color={colors.text.primary} />
-          <Text style={styles.tasksTitle}>Current Goals</Text>
-        </View>
-        <TouchableOpacity 
-          style={styles.viewAllButton}
-          onPress={handleViewAllGoals}
-        >
-          <Text style={styles.viewAllText}>View All</Text>
-          <Ionicons name="chevron-forward" size={16} color={colors.primary.main} />
-        </TouchableOpacity>
-      </View>
-      <View style={styles.tasksContent}>
-        {displayGoals.map((goal, index) => renderGoal(goal, index))}
-      </View>
-      <TouchableOpacity 
-        style={styles.manageGoalsButton}
-        onPress={handleViewAllGoals}
-      >
-        <Ionicons name="settings-outline" size={16} color={colors.primary.main} />
-        <Text style={styles.manageGoalsText}>Manage Goals in Calendar</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-const generateWeeklyMentalReadiness = () => {
-  const now = new Date();
-  const currentHour = now.getHours();
-  
-  // Generate labels for the past 6 hours with 2-hour gaps
-  const labels = Array.from({ length: 7 }, (_, i) => {
-    const hour = (currentHour - (i * 2) + 24) % 24; // Go back by 2-hour intervals
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const hour12 = hour % 12 || 12;
-    return `${hour12}${ampm}`;
-  }).reverse(); // Reverse to show oldest to newest
-
-  // Generate random scores between 40 and 100 for all time points
-  const data = Array.from({ length: 7 }, (_, i) => {
-    if (i === 0) return 40; // Start low
-    if (i === 1) return 65; // Quick improvement
-    // Rest of the points fluctuate between 60 and 75
-    return Math.floor(Math.random() * 15) + 60;
-  });
-
-  return { labels, data };
-};
-
-// Move getReadinessLevel outside component scope
-const getReadinessLevel = (score: number) => {
-  if (score >= 80) return 'Excellent';
-  if (score >= 60) return 'Good';
-  if (score >= 40) return 'Fair';
-  return 'Low';
-};
-
-const MentalReadinessHistory = () => {
-  const navigation = useNavigation<NavigationProp>();
-  const { labels, data } = generateWeeklyMentalReadiness();
-  const now = new Date();
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  const displayHours = hours % 12 || 12; // Convert to 12-hour format
-  const lastUpdated = `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-
-  const handlePress = () => {
-    navigation.navigate('MentalReadinessDetails', {
-      data,
-      labels,
-      color: colors.primary.main,
-      lastUpdated,
-      score: data[data.length - 1],
-      level: getReadinessLevel(data[data.length - 1])
-    });
-  };
-
-  return (
-    <Pressable onPress={handlePress} style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.titleContainer}>
-          <MaterialCommunityIcons name="brain" size={20} color={colors.text.primary} />
-          <Text style={styles.cardTitle}>Mental Readiness</Text>
-        </View>
-      </View>
-      <MetricsGraph
-        labels={labels}
-        datasets={[
-          {
-            data,
-            color: colors.primary.main,
-            label: 'Mental Readiness',
-          },
-        ]}
-        type="focus"
-      />
-    </Pressable>
-  );
-};
-
-const TriMetricVisual = ({ focusValue, stressValue, mentalReadinessScore }: {
-  focusValue: number,
-  stressValue: number, 
-  mentalReadinessScore: number
-}) => {
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-
-  useEffect(() => {
-    loadRecommendations();
-  }, []);
-
-  const loadRecommendations = async () => {
-    try {
-      const recs = await eegService.getRecommendations();
-      setRecommendations(recs);
-    } catch (error) {
-      console.error('Error loading recommendations:', error);
-    }
-  };
-
-  // Safe value conversion with fallbacks
-  const safeFocusValue = isNaN(focusValue) ? 1.5 : Math.max(0, Math.min(3, focusValue));
-  const safeStressValue = isNaN(stressValue) ? 1.5 : Math.max(0, Math.min(3, stressValue));
-  const safeMentalReadiness = isNaN(mentalReadinessScore) ? 75 : Math.max(0, Math.min(100, mentalReadinessScore));
-
-  // Get the first high-priority recommendation or use default
-  const primaryRecommendation = recommendations.find(rec => rec.priority === 'high') || recommendations[0];
-  const defaultInsight = "Your focus peaks when stress is low. Consider taking breaks between 2-3 PM.";
-  const insightText = primaryRecommendation?.description || defaultInsight;
-
-  return (
-    <View style={styles.metricsCardContainer}>
-      <View style={styles.metricsLayout}>
-        {/* Left side - Focus */}
-        <View style={styles.metricColumn}>
-          <View style={styles.metricsCircleContainer}>
-            <AnimatedCircularProgress
-              size={70}
-              width={5}
-              fill={toPercentage(safeFocusValue)}
-              tintColor="#4287f5"
-              backgroundColor="#1E2A45"
-              rotation={0}
-              lineCap="round"
-            >
-              {() => (
-                <MaterialCommunityIcons name="crosshairs" size={22} color="#4287f5" />
-              )}
-            </AnimatedCircularProgress>
-          </View>
-          <Text style={styles.metricValue}>{safeFocusValue.toFixed(1)}</Text>
-          <Text style={styles.metricLabel}>FOCUS</Text>
-        </View>
-        
-        {/* Center - Mental Readiness */}
-        <View style={styles.centerMetricColumn}>
-          <View style={styles.mentalReadinessCircleContainer}>
-            <AnimatedCircularProgress
-              size={90}
-              width={6}
-              fill={safeMentalReadiness}
-              tintColor="#64B5F6"
-              backgroundColor="#1E2A45"
-              rotation={0}
-              lineCap="round"
-            >
-              {() => (
-                <Text style={styles.mentalReadinessScore}>{safeMentalReadiness}%</Text>
-              )}
-            </AnimatedCircularProgress>
-          </View>
-          <Text style={styles.mentalReadinessLabel}>MENTAL READINESS</Text>
-        </View>
-        
-        {/* Right side - Stress */}
-        <View style={styles.metricColumn}>
-          <View style={styles.metricsCircleContainer}>
-            <AnimatedCircularProgress
-              size={70}
-              width={5}
-              fill={toPercentage(safeStressValue)}
-              tintColor="#FFA500"
-              backgroundColor="#1E2A45"
-              rotation={0}
-              lineCap="round"
-            >
-              {() => (
-                <MaterialCommunityIcons name="lightning-bolt" size={22} color="#FFA500" />
-              )}
-            </AnimatedCircularProgress>
-          </View>
-          <Text style={styles.metricValue}>{safeStressValue.toFixed(1)}</Text>
-          <Text style={styles.metricLabel}>STRESS</Text>
-        </View>
-      </View>
-      
-      <View style={styles.insightContainer}>
-        <Ionicons name="bulb-outline" size={20} color="#3B82F6" />
-        <Text style={styles.insightText}>
-          {insightText}
-        </Text>
-      </View>
-    </View>
-  );
-};
-
-const MetricsHeader = ({ focusValue, stressValue, mentalReadinessScore }: { 
-  focusValue: number, 
-  stressValue: number, 
-  mentalReadinessScore: number
-}) => {
-  return (
-    <TriMetricVisual
-      focusValue={focusValue}
-      stressValue={stressValue}
-      mentalReadinessScore={mentalReadinessScore}
-    />
-  );
-};
-
-const Header = () => {
-  const [isEarbudsConnected, setIsEarbudsConnected] = useState(false);
-  const navigation = useNavigation<NavigationProp>();
-
-  return (
-    <View style={styles.headerContainer}>
-      <View style={styles.headerContent}>
-        <Pressable 
-          style={styles.headphonesButton}
-          onPress={() => navigation.navigate('Bluetooth')}
-        >
-          <MaterialCommunityIcons 
-            name={isEarbudsConnected ? "headphones" : "headphones-off"} 
-            size={24} 
-            color={isEarbudsConnected ? colors.primary.main : colors.text.secondary} 
-          />
-        </Pressable>
-        <Text style={styles.headerSubtitle}>Track your mental state</Text>
-      </View>
-      <Pressable 
-        style={styles.profileButton}
-        onPress={() => navigation.navigate('Profile')}
-      >
-        <MaterialCommunityIcons name="account-circle" size={32} color={colors.text.primary} />
-      </Pressable>
-    </View>
-  );
-};
-
 const ESP32_NAME = "ESP32-Focus-Stress-Monitor";
-const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-const FOCUS_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
-const STRESS_CHAR_UUID = "e70aafb5-a597-4347-b1af-a67c67a075c6";
 
 const requestPermissions = async () => {
   if (Platform.OS === 'android') {
@@ -952,35 +187,604 @@ const isSimulator = () => {
   return Platform.OS === 'ios' && __DEV__;
 };
 
-const HomeScreen = () => {
-  const navigation = useNavigation<NavigationProp>();
+const HomeScreen: React.FC = () => {
+  const { colors, getScaledFontSize } = useTheme();
+  const tabNavigation = useNavigation<TabNavigationProp>();
+  const stackNavigation = useNavigation<StackNavigationProp>();
   const [focusData, setFocusData] = useState<MetricsData>({ data: [], labels: [] });
   const [stressData, setStressData] = useState<MetricsData>({ data: [], labels: [] });
   const [mentalReadiness, setMentalReadiness] = useState<number>(75);
-  const [fallbackEEGData, setFallbackEEGData] = useState<any>(null);
+  const [fallbackEEGData, setFallbackEEGData] = useState<any>({
+    focusValue: 1.5,
+    stressValue: 1.5,
+    mentalReadiness: 75,
+    source: 'default',
+    isRecent: false,
+    timeAgo: 'No recent data'
+  });
   const { demoMode, focusValue: demoFocusValue, stressValue: demoStressValue } = useDemo();
+  const { goals, isLoading } = useGoals();
   
-  const { 
-    isScanning, 
-    isConnected, 
-    connectToDevice, 
-    disconnectFromDevice, 
-    focusValue: bleFocusValue, 
-    stressValue: bleStressValue, 
-    error: bleError, 
-    lastUpdated: bleLastUpdated
-  } = useBLE();
+  // EEG BLE Service state
+  const [isEarbudsConnected, setIsEarbudsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   
   const [todayMetrics, setTodayMetrics] = useState<MetricDataPoint[]>([]);
   const isOnSimulator = isSimulator();
 
+  // EEG BLE Service instance
+  const eegBLEService = EEGBLEService.getInstance();
+
+  // Add EEG data processing
+  const [eegFocusValue, setEegFocusValue] = useState(1.5);
+  const [eegStressValue, setEegStressValue] = useState(1.5);
+
+  // Backend data states
+  const [bestFocusTime, setBestFocusTime] = useState<FocusTimeData | null>(null);
+  const [musicSuggestion, setMusicSuggestion] = useState<MusicSuggestion | null>(null);
+  const [hourlyMentalReadiness, setHourlyMentalReadiness] = useState<{
+    labels: string[];
+    data: number[];
+    totalSamples: number;
+  }>({
+    labels: ['9AM', '10AM', '11AM', '12PM'],
+    data: [72, 75, 78, 75],
+    totalSamples: 0
+  });
+  const [isLoadingBackendData, setIsLoadingBackendData] = useState(true);
+
+  // Add backend data for Today's Metrics (12-hour data with 4-hour intervals)
+  const [todaysMetricsData, setTodaysMetricsData] = useState<{
+    focusData: number[];
+    stressData: number[];
+    labels: string[];
+    lastUpdated: string;
+  }>({
+    focusData: [1.5, 1.5, 1.5, 1.5],
+    stressData: [1.5, 1.5, 1.5, 1.5],
+    labels: ['6AM', '10AM', '2PM', '6PM'],
+    lastUpdated: 'No recent data'
+  });
+
+  // Add state for backend insight
+  const [insightText, setInsightText] = useState<string>('');
+  const [isLoadingInsight, setIsLoadingInsight] = useState<boolean>(true);
+
+  // Fetch backend insight on mount
+  useEffect(() => {
+    const fetchInsight = async () => {
+      setIsLoadingInsight(true);
+      try {
+        const recs = await eegService.getRecommendations();
+        if (recs && recs.length > 0) {
+          setInsightText(recs[0].description || 'No insight available.');
+        } else {
+          setInsightText('No insight available.');
+        }
+      } catch (error) {
+        setInsightText('Unable to load insight.');
+      } finally {
+        setIsLoadingInsight(false);
+      }
+    };
+    fetchInsight();
+  }, []);
+
+  // Move styles inside component to access dynamic theme colors
+  const styles = StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background.dark,
+    },
+    container: {
+      flex: 1,
+      padding: 20,
+      paddingTop: 5,
+    },
+    header: {
+      marginBottom: 30,
+    },
+    title: {
+      fontSize: getScaledFontSize(28),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginBottom: 8,
+    },
+    subtitle: {
+      fontSize: getScaledFontSize(16),
+      color: colors.text.secondary,
+    },
+    errorContainer: {
+      backgroundColor: colors.error,
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 20,
+    },
+    errorText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(14),
+    },
+    errorClose: {
+      padding: 4,
+    },
+    metricsContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 30,
+    },
+    metricCard: {
+      flex: 1,
+      backgroundColor: colors.background.card,
+      padding: 16,
+      borderRadius: 12,
+      marginHorizontal: 8,
+      elevation: 3,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+    },
+    metricLabel: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginBottom: 8,
+    },
+    metricValue: {
+      fontSize: getScaledFontSize(24),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    actionButton: {
+      backgroundColor: colors.primary.main,
+      padding: 16,
+      borderRadius: 12,
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    buttonText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+    },
+    // Best Focus Time styles
+    bestFocusContainer: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 24,
+    },
+    bestFocusHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    bestFocusTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginLeft: 8,
+    },
+    bestFocusContent: {
+      alignItems: 'center',
+    },
+    timeChip: {
+      padding: 8,
+      borderRadius: 20,
+      marginBottom: 8,
+    },
+    timeText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(14),
+      fontWeight: 'bold',
+    },
+    bestFocusDescription: {
+      color: colors.text.secondary,
+      fontSize: getScaledFontSize(14),
+      textAlign: 'center',
+    },
+    confidenceText: {
+      color: colors.text.secondary,
+      fontSize: getScaledFontSize(12),
+      marginTop: 8,
+    },
+    // Mood Music styles
+    moodMusicContainer: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 24,
+    },
+    moodMusicHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    moodMusicTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginLeft: 8,
+    },
+    moodMusicContent: {
+      alignItems: 'center',
+    },
+    musicCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: 12,
+      borderRadius: 8,
+      width: '100%',
+    },
+    musicInfo: {
+      flex: 1,
+    },
+    musicType: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    musicDescription: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+    },
+    musicMood: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+    },
+    // Tasks styles
+    tasksContainer: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 24,
+    },
+    tasksHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 16,
+    },
+    tasksHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    tasksTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginLeft: 8,
+    },
+    tasksContent: {
+      gap: 12,
+    },
+    taskItem: {
+      backgroundColor: colors.background.dark,
+      borderRadius: 8,
+      padding: 12,
+    },
+    taskHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 8,
+    },
+    taskTitle: {
+      fontSize: getScaledFontSize(14),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    taskProgress: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+    },
+    progressBarBackground: {
+      height: 4,
+      backgroundColor: colors.background.dark,
+      borderRadius: 2,
+    },
+    progressBarFill: {
+      height: '100%',
+      borderRadius: 2,
+    },
+    goalTrackingInfo: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+      marginTop: 4,
+    },
+    // Mental Readiness styles
+    card: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 24,
+    },
+    cardHeader: {
+      marginBottom: 16,
+    },
+    titleContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    cardTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginLeft: 8,
+    },
+    // Metrics styles
+    metricsCardContainer: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 24,
+    },
+    metricsLayout: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    metricColumn: {
+      alignItems: 'center',
+      flex: 1,
+    },
+    centerMetricColumn: {
+      alignItems: 'center',
+      flex: 1.5,
+    },
+    mentalReadinessScore: {
+      fontSize: getScaledFontSize(20),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    mentalReadinessLabel: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+      textAlign: 'center',
+    },
+    // Header styles
+    headerContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 24,
+    },
+    headerContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    headphonesButton: {
+      padding: 8,
+    },
+    headerSubtitle: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginLeft: 8,
+    },
+    profileButton: {
+      padding: 8,
+    },
+    // Metrics Header styles
+    metricsHeader: {
+      marginBottom: 20,
+    },
+    insightContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.background.dark,
+      padding: 12,
+      borderRadius: 8,
+      marginTop: 16,
+    },
+    insightText: {
+      flex: 1,
+      fontSize: getScaledFontSize(14),
+      color: colors.text.primary,
+      marginLeft: 8,
+    },
+    scrollContent: {
+      paddingBottom: 107,
+      paddingTop: 10,
+    },
+    metricsCircleContainer: {
+      marginBottom: 8,
+    },
+    mentalReadinessCircleContainer: {
+      marginBottom: 8,
+    },
+    realTimeMetricsContainer: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 24,
+    },
+    realTimeMetricsTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginBottom: 12,
+    },
+    speedometersContainer: {
+      // Container style for SpeedometerMetrics component
+    },
+    todaysMetricsContainer: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 24,
+    },
+    todaysMetricsTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginBottom: 12,
+    },
+    chartHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    lastUpdated: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+    },
+    currentValueContainer: {
+      padding: 8,
+      borderRadius: 20,
+      backgroundColor: colors.background.dark,
+    },
+    currentLevel: {
+      fontSize: getScaledFontSize(14),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    chartContainer: {
+      marginBottom: 12,
+    },
+    dataSourceIndicator: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+      textAlign: 'center',
+      marginTop: 8,
+    },
+    tapToPlay: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+      marginTop: 8,
+    },
+    playButton: {
+      padding: 8,
+    },
+    viewAllButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 20,
+      backgroundColor: colors.background.dark,
+    },
+    viewAllText: {
+      fontSize: getScaledFontSize(12),
+      fontWeight: 'bold',
+      color: colors.primary.main,
+      marginRight: 4,
+    },
+    manageGoalsButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      marginTop: 12,
+      borderRadius: 8,
+      backgroundColor: colors.background.dark,
+      borderWidth: 1,
+      borderColor: colors.primary.main,
+    },
+    manageGoalsText: {
+      fontSize: getScaledFontSize(14),
+      fontWeight: '500',
+      color: colors.primary.main,
+      marginLeft: 8,
+    },
+    taskItemCompleted: {
+      backgroundColor: colors.background.dark,
+    },
+    taskTitleCompleted: {
+      textDecorationLine: 'line-through',
+      opacity: 0.7,
+    },
+    completedBadge: {
+      fontSize: getScaledFontSize(12),
+      fontWeight: 'bold',
+      color: colors.primary.main,
+      marginLeft: 4,
+    },
+    loadingText: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+      marginTop: 8,
+    },
+  });
+
+  // Initialize EEG BLE service callbacks
+  useEffect(() => {
+    eegBLEService.setOnConnectionStatusChanged((isConnected: boolean) => {
+      setIsEarbudsConnected(isConnected);
+      setIsConnecting(false);
+      if (isConnected) {
+        setConnectionError(null);
+      }
+    });
+
+    eegBLEService.setOnError((error: string) => {
+      setConnectionError(error);
+      setIsConnecting(false);
+    });
+
+    // Check initial connection status
+    const status = eegBLEService.connectionStatus;
+    setIsEarbudsConnected(status.isConnected);
+
+    return () => {
+      // Cleanup if needed
+    };
+  }, []);
+
+  // Connect/disconnect handlers
+  const handleConnectToEarbuds = async () => {
+    try {
+      setIsConnecting(true);
+      setConnectionError(null);
+      await eegBLEService.connectToEarbuds();
+    } catch (error: any) {
+      setConnectionError(error.message || 'Failed to connect to earbuds');
+      setIsConnecting(false);
+    }
+  };
+
+  const handleDisconnectFromEarbuds = async () => {
+    try {
+      await eegBLEService.disconnect();
+    } catch (error: any) {
+      setConnectionError(error.message || 'Failed to disconnect from earbuds');
+    }
+  };
+
+  // Process EEG data to derive focus and stress values
+  const processEEGData = (eegData: any) => {
+    if (!eegData || !eegData.records || eegData.records.length === 0) return;
+
+    // Simple processing: use the latest EEG record
+    const latestRecord = eegData.records[eegData.records.length - 1];
+    const { eeg } = latestRecord;
+
+    // Basic EEG processing to derive focus and stress
+    // This is a simplified approach - you would normally use more sophisticated algorithms
+    const avgAmplitude = eeg.reduce((sum: number, value: number) => sum + Math.abs(value), 0) / eeg.length;
+    const variance = eeg.reduce((sum: number, value: number) => sum + Math.pow(value - avgAmplitude, 2), 0) / eeg.length;
+    
+    // Convert to 0-3 scale (simplified mapping)
+    const focus = Math.min(3, Math.max(0, (avgAmplitude / 10000) * 3));
+    const stress = Math.min(3, Math.max(0, (variance / 100000) * 3));
+    
+    setEegFocusValue(Number(focus.toFixed(1)));
+    setEegStressValue(Number(stress.toFixed(1)));
+    
+    logDebug(`EEG processed - Focus: ${focus}, Stress: ${stress}`);
+  };
+
   // Load fallback data on component mount
   useEffect(() => {
     loadFallbackEEGData();
+    loadAllBackendData();
     
     // Refresh backend data every 30 seconds
     const interval = setInterval(() => {
       loadFallbackEEGData();
+      loadAllBackendData();
     }, 30000); // 30 seconds
     
     return () => clearInterval(interval);
@@ -1007,6 +811,10 @@ const HomeScreen = () => {
           timeAgo: eegData.timeAgo
         });
         
+        // Update the EEG values that are actually used by the components
+        setEegFocusValue(eegData.focusValue);
+        setEegStressValue(eegData.stressValue);
+        
         // Update the fallback data state
         setFallbackEEGData({
           ...eegData,
@@ -1025,52 +833,162 @@ const HomeScreen = () => {
     }
   };
 
+  const loadAllBackendData = async () => {
+    try {
+      setIsLoadingBackendData(true);
+      
+      // Load best focus time
+      try {
+        const focusTimeData = await eegService.getBestFocusTime();
+        setBestFocusTime(focusTimeData);
+      } catch (error) {
+        console.error('Error loading best focus time:', error);
+      }
+
+      // Load music suggestion
+      try {
+        const musicSuggestions = await eegService.getMusicSuggestion();
+        if (musicSuggestions && musicSuggestions.length > 0) {
+          setMusicSuggestion(musicSuggestions[0]);
+        }
+      } catch (error) {
+        console.error('Error loading music suggestions:', error);
+      }
+
+      // Load hourly mental readiness
+      try {
+        const hourlyData = await eegService.getEEGAggregate('hourly');
+        
+        if (hourlyData && hourlyData.data && hourlyData.data.length > 0) {
+          // Transform backend data to mental readiness scores (0-100%)
+          const mentalReadinessData = hourlyData.data.map(point => {
+            const readiness = Math.round(((point.focus_avg - point.stress_avg + 3) / 6) * 100);
+            return Math.max(0, Math.min(100, readiness));
+          });
+          
+          // Generate proper hourly labels
+          const now = new Date();
+          const currentHour = now.getHours();
+          const hoursToShow = Math.min(6, hourlyData.data.length);
+          const hourlyLabels = [];
+          
+          for (let i = hoursToShow - 1; i >= 0; i--) {
+            const hourTime = currentHour - i;
+            const adjustedHour = hourTime < 0 ? hourTime + 24 : hourTime;
+            const hour12 = adjustedHour === 0 ? 12 : adjustedHour > 12 ? adjustedHour - 12 : adjustedHour;
+            const ampmLabel = adjustedHour >= 12 ? 'PM' : 'AM';
+            hourlyLabels.push(`${hour12}${ampmLabel}`);
+          }
+          
+          const recentData = mentalReadinessData.slice(-hoursToShow);
+          
+          setHourlyMentalReadiness({
+            labels: hourlyLabels,
+            data: recentData,
+            totalSamples: hourlyData.total_samples || 0
+          });
+        }
+      } catch (error) {
+        console.error('Error loading mental readiness data:', error);
+      }
+
+      // Load Today's Metrics data (12-hour data with 4-hour intervals)
+      try {
+        const dailyData = await eegService.getEEGAggregate('daily');
+        
+        if (dailyData && dailyData.data && dailyData.data.length > 0) {
+          // Get the last 4 data points (representing 4-hour intervals over 12 hours)
+          const recentData = dailyData.data.slice(-4);
+          
+          // Generate proper 4-hour interval labels
+          const now = new Date();
+          const labels = [];
+          const focusData = [];
+          const stressData = [];
+          
+          for (let i = 3; i >= 0; i--) {
+            const hourTime = now.getHours() - (i * 4);
+            const adjustedHour = hourTime < 0 ? hourTime + 24 : hourTime;
+            const hour12 = adjustedHour === 0 ? 12 : adjustedHour > 12 ? adjustedHour - 12 : adjustedHour;
+            const ampmLabel = adjustedHour >= 12 ? 'PM' : 'AM';
+            labels.push(`${hour12}${ampmLabel}`);
+            
+            // Use backend data if available, otherwise use fallback values
+            if (recentData[i]) {
+              focusData.push(recentData[i].focus_avg !== undefined ? recentData[i].focus_avg : 1.5);
+              stressData.push(recentData[i].stress_avg !== undefined ? recentData[i].stress_avg : 1.5);
+            } else {
+              focusData.push(1.5);
+              stressData.push(1.5);
+            }
+          }
+          
+          setTodaysMetricsData({
+            focusData,
+            stressData,
+            labels,
+            lastUpdated: 'Recent data'
+          });
+        }
+      } catch (error) {
+        console.error('Error loading Today\'s Metrics data:', error);
+        // Fallback to current values with proper labels
+        const now = new Date();
+        const labels = [];
+        for (let i = 3; i >= 0; i--) {
+          const hourTime = now.getHours() - (i * 4);
+          const adjustedHour = hourTime < 0 ? hourTime + 24 : hourTime;
+          const hour12 = adjustedHour === 0 ? 12 : adjustedHour > 12 ? adjustedHour - 12 : adjustedHour;
+          const ampmLabel = adjustedHour >= 12 ? 'PM' : 'AM';
+          labels.push(`${hour12}${ampmLabel}`);
+        }
+        
+        setTodaysMetricsData({
+          focusData: [1.5, 1.5, 1.5, 1.5],
+          stressData: [1.5, 1.5, 1.5, 1.5],
+          labels,
+          lastUpdated: 'Using fallback data'
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error loading backend data:', error);
+    } finally {
+      setIsLoadingBackendData(false);
+    }
+  };
+
   // Determine which values to use with smart fallback logic
   const getDisplayValues = () => {
-    // Priority 1: Latest backend data (if recent or forced)
-    if (fallbackEEGData && fallbackEEGData.source === 'backend') {
-      console.log('🎯 Using backend EEG data:', {
-        focus: fallbackEEGData.focusValue,
-        stress: fallbackEEGData.stressValue,
-        isRecent: fallbackEEGData.isRecent,
-        timeAgo: fallbackEEGData.timeAgo
-      });
+    // Always prioritize backend data when available and recent
+    if (fallbackEEGData && fallbackEEGData.source === 'backend' && fallbackEEGData.isRecent) {
       return {
-        focusValue: fallbackEEGData.focusValue,
-        stressValue: fallbackEEGData.stressValue,
+        focusValue: fallbackEEGData.focusValue || 1.5,
+        stressValue: fallbackEEGData.stressValue || 1.5,
+        mentalReadiness: fallbackEEGData.mentalReadiness || 75,
         source: 'backend',
-        isLive: false,
-        timeAgo: fallbackEEGData.timeAgo,
-        isRecent: fallbackEEGData.isRecent
+        lastUpdated: fallbackEEGData.timeAgo || 'Just now'
       };
     }
-
-    // Priority 2: Demo mode values
-    if (demoMode && (demoFocusValue !== undefined && demoStressValue !== undefined)) {
+    
+    // If connected to earbuds, use live data
+    if (isEarbudsConnected && (eegFocusValue > 0 || eegStressValue > 0)) {
       return {
-        focusValue: demoFocusValue,
-        stressValue: demoStressValue,
-        source: 'demo',
-        isLive: true
+        focusValue: eegFocusValue,
+        stressValue: eegStressValue,
+        mentalReadiness: mentalReadiness,
+        source: 'live',
+        lastUpdated: 'Live'
       };
     }
-
-    // Priority 3: Live BLE values
-    if (!demoMode && (bleFocusValue !== undefined && bleStressValue !== undefined)) {
-      return {
-        focusValue: bleFocusValue,
-        stressValue: bleStressValue,
-        source: 'earbuds',
-        isLive: true
-      };
-    }
-
-    // Priority 4: Default fallback values
+    
+    // Fallback to default or stored backend data
     return {
-      focusValue: 1.5,
-      stressValue: 1.5,
-      source: 'default',
-      isLive: false
+      focusValue: (fallbackEEGData && fallbackEEGData.focusValue) || eegFocusValue || 1.5,
+      stressValue: (fallbackEEGData && fallbackEEGData.stressValue) || eegStressValue || 1.5,
+      mentalReadiness: (fallbackEEGData && fallbackEEGData.mentalReadiness) || mentalReadiness || 75,
+      source: (fallbackEEGData && fallbackEEGData.source) || 'default',
+      lastUpdated: (fallbackEEGData && fallbackEEGData.timeAgo) || 'No recent data'
     };
   };
 
@@ -1081,7 +999,7 @@ const HomeScreen = () => {
   useEffect(() => {
     if (!demoMode && !isOnSimulator) {
       try {
-        connectToDevice();
+        handleConnectToEarbuds();
       } catch (error) {
         console.error('Error connecting to device:', error);
       }
@@ -1090,7 +1008,7 @@ const HomeScreen = () => {
 
   useEffect(() => {
     try {
-      const currentValue = demoMode ? demoFocusValue : bleFocusValue;
+      const currentValue = demoMode ? demoFocusValue : eegFocusValue;
       if (currentValue !== undefined) {
         const newData = [...focusData.data, currentValue];
         const now = new Date();
@@ -1108,11 +1026,11 @@ const HomeScreen = () => {
     } catch (error) {
       console.error('Error updating focus data:', error);
     }
-  }, [demoMode ? demoFocusValue : bleFocusValue]);
+  }, [demoMode ? demoFocusValue : eegFocusValue]);
 
   useEffect(() => {
     try {
-      const currentValue = demoMode ? demoStressValue : bleStressValue;
+      const currentValue = demoMode ? demoStressValue : eegStressValue;
       if (currentValue !== undefined) {
         const newData = [...stressData.data, currentValue];
         const now = new Date();
@@ -1130,24 +1048,24 @@ const HomeScreen = () => {
     } catch (error) {
       console.error('Error updating stress data:', error);
     }
-  }, [demoMode ? demoStressValue : bleStressValue]);
+  }, [demoMode ? demoStressValue : eegStressValue]);
 
   useEffect(() => {
     const storeMetrics = async () => {
-      if (!demoMode && (bleFocusValue !== undefined || bleStressValue !== undefined)) {
+      if (!demoMode && (eegFocusValue !== undefined || eegStressValue !== undefined)) {
         try {
-          if (bleFocusValue !== undefined) {
+          if (eegFocusValue !== undefined) {
             await databaseService.storeReading({
               timestamp: new Date(),
-              value: bleFocusValue,
+              value: eegFocusValue,
               type: 'attention'
             });
           }
           
-          if (bleStressValue !== undefined) {
+          if (eegStressValue !== undefined) {
             await databaseService.storeReading({
               timestamp: new Date(),
-              value: bleStressValue,
+              value: eegStressValue,
               type: 'stress'
             });
           }
@@ -1159,7 +1077,71 @@ const HomeScreen = () => {
     };
 
     storeMetrics();
-  }, [demoMode, bleFocusValue, bleStressValue]);
+  }, [demoMode, eegFocusValue, eegStressValue]);
+
+  // NEW: Monitor focus and stress values for threshold alerts
+  useEffect(() => {
+    const checkThresholds = async () => {
+      const displayValues = getDisplayValues();
+      const { focusValue, stressValue } = displayValues;
+      
+      // Only check thresholds if we have valid values and they're not default fallback values
+      if (focusValue > 0 && stressValue > 0 && displayValues.source !== 'default') {
+        try {
+          await notificationService.checkThresholdAlerts(focusValue, stressValue);
+        } catch (error) {
+          console.error('Error checking threshold alerts:', error);
+        }
+      }
+    };
+
+    // Check thresholds every time the values change
+    checkThresholds();
+  }, [eegFocusValue, eegStressValue, fallbackEEGData]);
+
+  const handlePlayMusic = () => {
+    Alert.alert('Music Feature', 'Music integration coming soon!');
+  };
+
+  // Handle navigation to Detailed Metrics Screen
+  const handleNavigateToDetailedMetrics = () => {
+    const focusLevel = currentFocusValue >= 2.5 ? 'HIGH' : currentFocusValue >= 1.5 ? 'MEDIUM' : 'LOW';
+    const stressLevel = currentStressValue >= 2.5 ? 'HIGH' : currentStressValue >= 1.5 ? 'MEDIUM' : 'LOW';
+    stackNavigation.navigate('DetailedMetrics', {
+      focusData: todaysMetricsData.focusData,
+      stressData: todaysMetricsData.stressData,
+      labels: todaysMetricsData.labels,
+      lastUpdated: todaysMetricsData.lastUpdated,
+      focusLevel,
+      focusValue: currentFocusValue,
+      stressLevel,
+      stressValue: currentStressValue,
+      focusColor: '#4287f5',
+      stressColor: '#FFA500',
+      mentalReadinessScore: mentalReadiness,
+      mentalReadinessLevel: mentalReadiness >= 80 ? 'EXCELLENT' : mentalReadiness >= 60 ? 'GOOD' : mentalReadiness >= 40 ? 'FAIR' : 'LOW',
+      correlationData: {
+        highFocusHighStress: 0,
+        highFocusLowStress: 0,
+        lowFocusHighStress: 0,
+        lowFocusLowStress: 0
+      },
+      recommendations: []
+    });
+  };
+
+  // Handle navigation to Mental Readiness Details Screen
+  const handleNavigateToMentalReadinessDetails = () => {
+    const mentalReadinessLevel = mentalReadiness >= 80 ? 'EXCELLENT' : mentalReadiness >= 60 ? 'GOOD' : mentalReadiness >= 40 ? 'FAIR' : 'LOW';
+    stackNavigation.navigate('MentalReadinessDetails', {
+      data: hourlyMentalReadiness.data,
+      labels: hourlyMentalReadiness.labels,
+      color: colors.primary.main,
+      lastUpdated: hourlyMentalReadiness.totalSamples > 0 ? 'Recent data' : 'No recent data',
+      score: mentalReadiness,
+      level: mentalReadinessLevel
+    });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -1168,474 +1150,328 @@ const HomeScreen = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <Header />
+        <View style={styles.headerContainer}>
+          <View style={styles.headerContent}>
+            <Pressable 
+              style={styles.headphonesButton}
+              onPress={() => stackNavigation.navigate('Bluetooth')}
+            >
+              <MaterialCommunityIcons 
+                name={isEarbudsConnected ? "headphones" : "headphones-off"} 
+                size={24} 
+                color={isEarbudsConnected ? colors.primary.main : colors.text.secondary} 
+              />
+            </Pressable>
+            <Text style={styles.headerSubtitle}>Track your mental state</Text>
+          </View>
+          <Pressable 
+            style={styles.profileButton}
+            onPress={() => stackNavigation.navigate('Profile')}
+          >
+            <MaterialCommunityIcons name="account-circle" size={32} color={colors.text.primary} />
+          </Pressable>
+        </View>
 
-        <TriMetricVisual 
-          focusValue={currentFocusValue} 
-          stressValue={currentStressValue} 
-          mentalReadinessScore={mentalReadiness} 
-        />
+        {/* Connection Error Display */}
+        {connectionError && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{connectionError}</Text>
+            <TouchableOpacity 
+              onPress={() => setConnectionError(null)}
+              style={styles.errorClose}
+            >
+              <Ionicons name="close" size={16} color={colors.text.primary} />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Simple metrics display */}
+        <View style={styles.metricsCardContainer}>
+          <View style={styles.metricsLayout}>
+            {/* Left side - Focus */}
+            <View style={styles.metricColumn}>
+              <View style={styles.metricsCircleContainer}>
+                <AnimatedCircularProgress
+                  size={70}
+                  width={5}
+                  fill={toPercentage(currentFocusValue)}
+                  tintColor="#4287f5"
+                  backgroundColor="#1E2A45"
+                  rotation={0}
+                  lineCap="round"
+                >
+                  {() => (
+                    <MaterialCommunityIcons name="crosshairs" size={22} color="#4287f5" />
+                  )}
+                </AnimatedCircularProgress>
+              </View>
+              <Text style={styles.metricValue}>{currentFocusValue.toFixed(1)}</Text>
+              <Text style={styles.metricLabel}>FOCUS</Text>
+            </View>
+            
+            {/* Center - Mental Readiness */}
+            <View style={styles.centerMetricColumn}>
+              <View style={styles.mentalReadinessCircleContainer}>
+                <AnimatedCircularProgress
+                  size={90}
+                  width={6}
+                  fill={mentalReadiness}
+                  tintColor="#64B5F6"
+                  backgroundColor="#1E2A45"
+                  rotation={0}
+                  lineCap="round"
+                >
+                  {() => (
+                    <Text style={styles.mentalReadinessScore}>{mentalReadiness}%</Text>
+                  )}
+                </AnimatedCircularProgress>
+              </View>
+              <Text style={styles.mentalReadinessLabel}>MENTAL READINESS</Text>
+            </View>
+            
+            {/* Right side - Stress */}
+            <View style={styles.metricColumn}>
+              <View style={styles.metricsCircleContainer}>
+                <AnimatedCircularProgress
+                  size={70}
+                  width={5}
+                  fill={toPercentage(currentStressValue)}
+                  tintColor="#FFA500"
+                  backgroundColor="#1E2A45"
+                  rotation={0}
+                  lineCap="round"
+                >
+                  {() => (
+                    <MaterialCommunityIcons name="lightning-bolt" size={22} color="#FFA500" />
+                  )}
+                </AnimatedCircularProgress>
+              </View>
+              <Text style={styles.metricValue}>{currentStressValue.toFixed(1)}</Text>
+              <Text style={styles.metricLabel}>STRESS</Text>
+            </View>
+          </View>
+          
+          <View style={styles.insightContainer}>
+            <Ionicons name="bulb-outline" size={20} color="#3B82F6" />
+            <Text style={styles.insightText}>
+              {isLoadingInsight ? 'Loading insight...' : insightText}
+            </Text>
+          </View>
+        </View>
 
         <RealTimeMetrics
           focusValue={currentFocusValue}
           stressValue={currentStressValue}
+          styles={styles}
         />
 
-        <TodaysMetrics
-          focusData={focusData}
-          stressData={stressData}
-          focusValue={currentFocusValue}
-          stressValue={currentStressValue}
-        />
+        {/* Today's Metrics with real backend data */}
+        <View style={styles.todaysMetricsContainer}>
+          <Text style={styles.todaysMetricsTitle}>Today's Metrics</Text>
+          <View style={styles.chartHeader}>
+            <Text style={styles.lastUpdated}>
+              {todaysMetricsData.lastUpdated !== 'No recent data' 
+                ? `Last updated ${todaysMetricsData.lastUpdated}` 
+                : 'Loading...'}
+            </Text>
+            <View style={styles.currentValueContainer}>
+              <Text style={[styles.currentLevel, { color: '#4287f5' }]}>
+                {currentFocusValue >= 2.5 ? 'HIGH' : currentFocusValue >= 1.5 ? 'MEDIUM' : 'LOW'} {currentFocusValue.toFixed(1)}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.chartContainer}>
+            <MetricsGraph
+              labels={todaysMetricsData.labels}
+              datasets={[
+                {
+                  data: todaysMetricsData.focusData,
+                  color: '#4287f5',
+                  label: 'Focus',
+                },
+                {
+                  data: todaysMetricsData.stressData,
+                  color: '#FFA500',
+                  label: 'Stress',
+                },
+              ]}
+              type="focus"
+              hideHeader={true}
+              onPress={handleNavigateToDetailedMetrics}
+            />
+          </View>
+          <Text style={styles.dataSourceIndicator}>
+            {todaysMetricsData.lastUpdated === 'Recent data' ? 'Showing real backend data' : 
+             todaysMetricsData.lastUpdated === 'Using fallback data' ? 'Using fallback data' : 
+             'Loading...'} - 4hr intervals
+          </Text>
+        </View>
 
-        <BestFocusTime />
+        {/* Best Focus Time */}
+        <View style={styles.bestFocusContainer}>
+          <View style={styles.bestFocusHeader}>
+            <MaterialCommunityIcons name="timer-outline" size={20} color={colors.text.primary} />
+            <Text style={styles.bestFocusTitle}>Best Time to Focus</Text>
+          </View>
+          <View style={styles.bestFocusContent}>
+            <LinearGradient
+              colors={[colors.primary.main, colors.primary.light]}
+              style={styles.timeChip}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <Text style={styles.timeText}>
+                {bestFocusTime 
+                  ? eegService.formatTimeRange(bestFocusTime.best_time_start, bestFocusTime.best_time_end)
+                  : isLoadingBackendData ? 'Loading...' : '10:00 AM - 12:00 PM'}
+              </Text>
+            </LinearGradient>
+            <Text style={styles.bestFocusDescription}>
+              {bestFocusTime
+                ? `Based on your focus patterns, you're most productive during these hours (${bestFocusTime.focus_score}% focus score)`
+                : "Based on your focus patterns, you're most productive during these hours"}
+            </Text>
+            {bestFocusTime && (
+              <Text style={styles.confidenceText}>
+                Confidence: {bestFocusTime.confidence}%
+              </Text>
+            )}
+          </View>
+        </View>
 
-        <MoodMusic />
+        {/* Music for You */}
+        <View style={styles.moodMusicContainer}>
+          <View style={styles.moodMusicHeader}>
+            <Ionicons name="musical-notes" size={20} color={colors.text.primary} />
+            <Text style={styles.moodMusicTitle}>Music for You</Text>
+          </View>
+          <View style={styles.moodMusicContent}>
+            <TouchableOpacity onPress={handlePlayMusic}>
+              <LinearGradient
+                colors={[colors.primary.main, colors.primary.light]}
+                style={styles.musicCard}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                <View style={styles.musicInfo}>
+                  <Text style={styles.musicType}>
+                    {musicSuggestion?.title || (isLoadingBackendData ? 'Loading...' : 'Focus Beats')}
+                  </Text>
+                  <Text style={styles.musicDescription}>
+                    {musicSuggestion?.artist || musicSuggestion?.genre || 'Lo-fi beats to help you concentrate'}
+                  </Text>
+                  {musicSuggestion?.recommended_for && (
+                    <Text style={styles.musicMood}>
+                      For {musicSuggestion.recommended_for}
+                    </Text>
+                  )}
+                  <Text style={styles.tapToPlay}>Tap to play or get suggestion</Text>
+                </View>
+                <View style={styles.playButton}>
+                  <Ionicons 
+                    name="play-circle" 
+                    size={36} 
+                    color={colors.text.primary} 
+                  />
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-        <Tasks />
+        {/* Current Goals */}
+        <View style={styles.tasksContainer}>
+          <View style={styles.tasksHeader}>
+            <View style={styles.tasksHeaderLeft}>
+              <Ionicons name="list" size={20} color={colors.text.primary} />
+              <Text style={styles.tasksTitle}>Current Goals</Text>
+            </View>
+            <Pressable
+              style={styles.viewAllButton}
+              onPress={() => tabNavigation.navigate('Calendar', { scrollTo: 'goals' })}
+            >
+              <Text style={styles.viewAllText}>View All</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.primary.main} />
+            </Pressable>
+          </View>
+          <View style={styles.tasksContent}>
+            {isLoading ? (
+              <Text style={styles.loadingText}>Loading goals...</Text>
+            ) : goals && goals.length > 0 ? (
+              goals.slice(0, 3).map((goal) => {
+                const progress = goal.target > 0 ? Math.min(goal.current / goal.target, 1) : 0;
+                return (
+                  <View key={goal.id} style={styles.taskItem}>
+                    <View style={styles.taskHeader}>
+                      <Text style={styles.taskTitle}>{goal.name}</Text>
+                      <Text style={styles.taskProgress}>
+                        {goal.current}/{goal.target} {goal.unit}
+                      </Text>
+                    </View>
+                    <View style={styles.progressBarBackground}>
+                      <LinearGradient
+                        colors={[colors.primary.main, colors.primary.light]}
+                        style={[styles.progressBarFill, { width: `${progress * 100}%` }]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                      />
+                    </View>
+                    <Text style={styles.goalTrackingInfo}>
+                      Tracking: {goal.trackingType || 'progress'}
+                    </Text>
+                  </View>
+                );
+              })
+            ) : (
+              <Text style={styles.loadingText}>No goals found. Set up your first goal in the Calendar screen!</Text>
+            )}
+          </View>
+        </View>
 
-        <MentalReadinessHistory />
+        {/* Mental Readiness History */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.titleContainer}>
+              <MaterialCommunityIcons name="brain" size={20} color={colors.text.primary} />
+              <Text style={styles.cardTitle}>Mental Readiness History</Text>
+            </View>
+            {isLoadingBackendData && (
+              <Text style={styles.loadingText}>Loading...</Text>
+            )}
+          </View>
+          <MetricsGraph
+            labels={hourlyMentalReadiness.labels}
+            datasets={[
+              {
+                data: hourlyMentalReadiness.data,
+                color: colors.primary.main,
+                label: 'Mental Readiness',
+              },
+            ]}
+            type="mental"
+            yAxisMax={100}
+            yAxisSegments={5}
+            yAxisLabels={[0, 20, 40, 60, 80, 100]}
+            onPress={handleNavigateToMentalReadinessDetails}
+          />
+          <Text style={styles.dataSourceIndicator}>
+            {hourlyMentalReadiness.totalSamples > 0 
+              ? `Real data (${hourlyMentalReadiness.totalSamples} samples)` 
+              : 'Hourly mental readiness tracking'}
+          </Text>
+        </View>
 
         <TouchableOpacity 
           style={styles.actionButton}
-          onPress={isConnected ? disconnectFromDevice : connectToDevice}
+          onPress={isEarbudsConnected ? handleDisconnectFromEarbuds : handleConnectToEarbuds}
         >
           <Text style={styles.buttonText}>
-            {isScanning ? 'Scanning...' : isConnected ? 'Disconnect Device' : 'Connect to Device'}
+            {isConnecting ? 'Connecting to Earbuds...' : isEarbudsConnected ? 'Disconnect Earbuds' : 'Connect to EEG Earbuds'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background.dark,
-  },
-  container: {
-    flex: 1,
-    padding: 20,
-    paddingTop: 5,
-  },
-  header: {
-    marginBottom: 30,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: colors.text.secondary,
-  },
-  errorContainer: {
-    backgroundColor: colors.error,
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 20,
-  },
-  errorText: {
-    color: colors.text.primary,
-    fontSize: 14,
-  },
-  metricsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 30,
-  },
-  metricCard: {
-    flex: 1,
-    backgroundColor: colors.background.card,
-    padding: 16,
-    borderRadius: 12,
-    marginHorizontal: 8,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  metricLabel: {
-    fontSize: 14,
-    color: colors.text.secondary,
-    marginBottom: 8,
-  },
-  metricValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-  },
-  actionButton: {
-    backgroundColor: colors.primary.main,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  buttonText: {
-    color: colors.text.primary,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  // Best Focus Time styles
-  bestFocusContainer: {
-    backgroundColor: colors.background.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  bestFocusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  bestFocusTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-    marginLeft: 8,
-  },
-  bestFocusContent: {
-    alignItems: 'center',
-  },
-  timeChip: {
-    padding: 8,
-    borderRadius: 20,
-    marginBottom: 8,
-  },
-  timeText: {
-    color: colors.text.primary,
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  bestFocusDescription: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  confidenceText: {
-    color: colors.text.secondary,
-    fontSize: 12,
-    marginTop: 8,
-  },
-  // Mood Music styles
-  moodMusicContainer: {
-    backgroundColor: colors.background.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  moodMusicHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  moodMusicTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-    marginLeft: 8,
-  },
-  moodMusicContent: {
-    alignItems: 'center',
-  },
-  musicCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 8,
-    width: '100%',
-  },
-  musicInfo: {
-    flex: 1,
-  },
-  musicType: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-  },
-  musicDescription: {
-    fontSize: 14,
-    color: colors.text.secondary,
-  },
-  musicMood: {
-    fontSize: 12,
-    color: colors.text.secondary,
-  },
-  // Tasks styles
-  tasksContainer: {
-    backgroundColor: colors.background.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  tasksHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  tasksHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  tasksTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-    marginLeft: 8,
-  },
-  tasksContent: {
-    gap: 12,
-  },
-  taskItem: {
-    backgroundColor: colors.background.dark,
-    borderRadius: 8,
-    padding: 12,
-  },
-  taskHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  taskTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-  },
-  taskProgress: {
-    fontSize: 14,
-    color: colors.text.secondary,
-  },
-  progressBarBackground: {
-    height: 4,
-    backgroundColor: colors.background.dark,
-    borderRadius: 2,
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  goalTrackingInfo: {
-    fontSize: 12,
-    color: colors.text.secondary,
-    marginTop: 4,
-  },
-  // Mental Readiness styles
-  card: {
-    backgroundColor: colors.background.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  cardHeader: {
-    marginBottom: 16,
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-    marginLeft: 8,
-  },
-  // Metrics styles
-  metricsCardContainer: {
-    backgroundColor: colors.background.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  metricsLayout: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  metricColumn: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  centerMetricColumn: {
-    alignItems: 'center',
-    flex: 1.5,
-  },
-  mentalReadinessScore: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-  },
-  mentalReadinessLabel: {
-    fontSize: 12,
-    color: colors.text.secondary,
-    textAlign: 'center',
-  },
-  // Header styles
-  headerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  headerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headphonesButton: {
-    padding: 8,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: colors.text.secondary,
-    marginLeft: 8,
-  },
-  profileButton: {
-    padding: 8,
-  },
-  // Metrics Header styles
-  metricsHeader: {
-    marginBottom: 20,
-  },
-  insightContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.background.dark,
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  insightText: {
-    flex: 1,
-    fontSize: 14,
-    color: colors.text.primary,
-    marginLeft: 8,
-  },
-  scrollContent: {
-    paddingBottom: 107,
-    paddingTop: 10,
-  },
-  metricsCircleContainer: {
-    marginBottom: 8,
-  },
-  mentalReadinessCircleContainer: {
-    marginBottom: 8,
-  },
-  realTimeMetricsContainer: {
-    backgroundColor: colors.background.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  realTimeMetricsTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-    marginBottom: 12,
-  },
-  speedometersContainer: {
-    // Container style for SpeedometerMetrics component
-  },
-  todaysMetricsContainer: {
-    backgroundColor: colors.background.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  todaysMetricsTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-    marginBottom: 12,
-  },
-  chartHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  lastUpdated: {
-    fontSize: 14,
-    color: colors.text.secondary,
-  },
-  currentValueContainer: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: colors.background.dark,
-  },
-  currentLevel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: colors.text.primary,
-  },
-  chartContainer: {
-    marginBottom: 12,
-  },
-  dataSourceIndicator: {
-    fontSize: 12,
-    color: colors.text.secondary,
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  tapToPlay: {
-    fontSize: 12,
-    color: colors.text.secondary,
-    marginTop: 8,
-  },
-  playButton: {
-    padding: 8,
-  },
-  viewAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: colors.background.dark,
-  },
-  viewAllText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: colors.primary.main,
-    marginRight: 4,
-  },
-  manageGoalsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginTop: 12,
-    borderRadius: 8,
-    backgroundColor: colors.background.dark,
-    borderWidth: 1,
-    borderColor: colors.primary.main,
-  },
-  manageGoalsText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.primary.main,
-    marginLeft: 8,
-  },
-  taskItemCompleted: {
-    backgroundColor: colors.background.dark,
-  },
-  taskTitleCompleted: {
-    textDecorationLine: 'line-through',
-    opacity: 0.7,
-  },
-  completedBadge: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: colors.primary.main,
-    marginLeft: 4,
-  },
-});
 
 export default HomeScreen;

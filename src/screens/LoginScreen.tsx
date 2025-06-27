@@ -16,16 +16,140 @@ import {
 } from 'react-native';
 import { authService } from '../services/auth';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useTheme } from '../context/ThemeContext';
 
 interface LoginScreenProps {
   navigation: any;
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
+  const { colors, getScaledFontSize } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isForgotPasswordLoading, setIsForgotPasswordLoading] = useState(false);
+
+  // Move styles inside component to access theme colors
+  const styles = StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background.dark,
+    },
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.dark,
+    },
+    scrollContainer: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      padding: 20,
+    },
+    header: {
+      alignItems: 'center',
+      marginBottom: 40,
+    },
+    title: {
+      fontSize: 32,
+      fontWeight: 'bold',
+      marginBottom: 8,
+      color: colors.text.primary,
+    },
+    subtitle: {
+      fontSize: 18,
+      color: colors.text.secondary,
+    },
+    form: {
+      backgroundColor: colors.background.card,
+      borderRadius: 10,
+      padding: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
+      elevation: 5,
+    },
+    inputContainer: {
+      marginBottom: 20,
+    },
+    inputLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 8,
+    },
+    input: {
+      backgroundColor: colors.background.dark,
+      borderWidth: 1,
+      borderColor: '#3A4452',
+      borderRadius: 5,
+      padding: 15,
+      fontSize: 16,
+      color: colors.text.primary,
+    },
+    forgotPasswordButton: {
+      alignSelf: 'flex-end',
+      paddingVertical: 5,
+      marginBottom: 15,
+    },
+    forgotPasswordText: {
+      color: colors.primary.main,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    loginButton: {
+      backgroundColor: colors.primary.main,
+      borderRadius: 5,
+      padding: 15,
+      alignItems: 'center',
+      marginTop: 10,
+    },
+    buttonText: {
+      color: colors.text.primary,
+      fontSize: 16,
+      fontWeight: 'bold',
+    },
+    divider: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginVertical: 20,
+    },
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: '#3A4452',
+    },
+    dividerText: {
+      color: colors.text.secondary,
+      paddingHorizontal: 15,
+      fontSize: 14,
+    },
+    googleButton: {
+      backgroundColor: colors.background.dark,
+      borderWidth: 1,
+      borderColor: '#3A4452',
+      borderRadius: 5,
+      padding: 15,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 20,
+    },
+    googleButtonText: {
+      color: colors.text.primary,
+      fontSize: 16,
+      fontWeight: '500',
+      marginLeft: 10,
+    },
+    switchButton: {
+      alignItems: 'center',
+      paddingVertical: 10,
+    },
+    switchText: {
+      color: colors.primary.main,
+      fontSize: 16,
+      fontWeight: '500',
+    },
+  });
 
   const handleEmailLogin = async () => {
     if (!email || !password) {
@@ -185,126 +309,5 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
     </>
   );
 };
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#0E1624',
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#0E1624',
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: 20,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#FFFFFF',
-  },
-  subtitle: {
-    fontSize: 18,
-    color: '#AAAAAA',
-  },
-  form: {
-    backgroundColor: '#1A2332',
-    borderRadius: 10,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#2A3442',
-    borderWidth: 1,
-    borderColor: '#3A4452',
-    borderRadius: 5,
-    padding: 15,
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  forgotPasswordButton: {
-    alignSelf: 'flex-end',
-    paddingVertical: 5,
-    marginBottom: 15,
-  },
-  forgotPasswordText: {
-    color: '#4a90e2',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  loginButton: {
-    backgroundColor: '#4a90e2',
-    borderRadius: 5,
-    padding: 15,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#3A4452',
-  },
-  dividerText: {
-    color: '#AAAAAA',
-    paddingHorizontal: 15,
-    fontSize: 14,
-  },
-  googleButton: {
-    backgroundColor: '#2A3442',
-    borderWidth: 1,
-    borderColor: '#3A4452',
-    borderRadius: 5,
-    padding: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  googleButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '500',
-    marginLeft: 10,
-  },
-  switchButton: {
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  switchText: {
-    color: '#4a90e2',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-});
 
 export default LoginScreen; 

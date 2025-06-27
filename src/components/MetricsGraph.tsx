@@ -17,12 +17,15 @@ type MetricsGraphProps = {
     level: string;
     value: number;
   };
-  type: 'focus' | 'stress';
+  type: 'focus' | 'stress' | 'mental';
   onPress?: () => void;
   hideHeader?: boolean;
+  yAxisMax?: number;
+  yAxisSegments?: number;
+  yAxisLabels?: number[];
 };
 
-const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress, hideHeader }: MetricsGraphProps) => {
+const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress, hideHeader, yAxisMax = 3, yAxisSegments = 3, yAxisLabels = [0, 1, 2, 3] }: MetricsGraphProps) => {
   const screenWidth = Dimensions.get('window').width;
   const containerPadding = 16;
   const yAxisWidth = 35;
@@ -30,34 +33,47 @@ const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress, hi
 
   // Format time labels to 12-hour format and show every 2nd label for 2-hour gaps
   const formattedLabels = labels.map(label => {
+    // Check if label is already formatted (contains AM/PM)
+    if (label.includes('AM') || label.includes('PM')) {
+      return label; // Already formatted, use as-is
+    }
+    
+    // Handle time format like "14:00" or "2:00"
     const hour = parseInt(label.split(':')[0]);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const hour12 = hour % 12 || 12;
-    return `${hour12}${ampm}`;
+    if (!isNaN(hour)) {
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const hour12 = hour % 12 || 12;
+      return `${hour12}${ampm}`;
+    }
+    
+    // For other formats (like day names), return as-is
+    return label;
   });
 
-  // Show only every 2nd label for 2-hour gaps
-  const displayLabels = formattedLabels.map((label, i) => 
-    i % 2 === 0 ? label : ''
-  );
+  // Show only every 2nd label for 2-hour gaps (but show all labels if we have 4 or fewer)
+  const displayLabels = labels.length <= 4 
+    ? formattedLabels // Show all labels if 4 or fewer
+    : formattedLabels.map((label, i) => i % 2 === 0 ? label : ''); // Show every 2nd label
 
   // Ensure we have valid data for each dataset
   const validDatasets = datasets.map(dataset => ({
     ...dataset,
     data: [
-      0, // Hidden minimum reference point
+      // No hidden min/max points; use real 0-3 scale
       ...dataset.data.map(value => {
         if (isNaN(value) || !isFinite(value)) return 0;
-        // Scale the value to 0-99 range if it's mental readiness data
-        if (dataset.label.toLowerCase().includes('mental')) {
-          return value; // Mental readiness is already in 0-99 range
-        }
-        // Scale focus/stress from 0-3 to 0-99
-        return Math.round((value / 3) * 99);
-      }),
-      99, // Hidden maximum reference point
+        return value; // Use real 0-3 values for focus/stress
+      })
     ]
   }));
+
+  // Add a hidden dataset to force y-axis max
+  const yAxisMaxDataset = {
+    data: [yAxisMax],
+    color: () => 'rgba(0,0,0,0)',
+    strokeWidth: 0,
+    withDots: false,
+  };
 
   return (
     <View style={styles.container}>
@@ -69,7 +85,9 @@ const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress, hi
           {status && (
             <View style={styles.headerRight}>
               <Text style={[styles.statusLevel, { color: datasets[0].color }]}>{status.level}</Text>
-              <Text style={[styles.statusValue, { color: datasets[0].color }]}>{status.value.toFixed(1)}</Text>
+              <Text style={[styles.statusValue, { color: datasets[0].color }]}>
+                {typeof status.value === 'number' ? status.value.toFixed(1) : '0.0'}
+              </Text>
             </View>
           )}
         </View>
@@ -81,12 +99,7 @@ const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress, hi
             data={{
               labels: displayLabels,
               datasets: [
-                // Reference dataset to force y-axis range (invisible)
-                {
-                  data: [0, 99],
-                  color: () => 'rgba(0, 0, 0, 0)',
-                  strokeWidth: 0,
-                },
+                yAxisMaxDataset,
                 ...validDatasets.map(dataset => ({
                   data: dataset.data.length > 0 ? dataset.data : [0],
                   color: () => dataset.color,
@@ -102,7 +115,7 @@ const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress, hi
               backgroundColor: colors.background.dark,
               backgroundGradientFrom: colors.background.dark,
               backgroundGradientTo: colors.background.dark,
-              decimalPlaces: 0,
+              decimalPlaces: 1,
               color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
               labelColor: () => colors.text.secondary,
               style: {
@@ -118,10 +131,9 @@ const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress, hi
               },
               formatYLabel: (yLabel: string) => {
                 const value = Number(yLabel);
-                // Show labels at 0, 33, 66, 99
-                return value % 33 === 0 ? value.toString() : '';
+                return yAxisLabels.includes(value) ? value.toString() : '';
               },
-              count: 4,
+              count: yAxisSegments,
               propsForLabels: {
                 fontSize: 11,
               }
@@ -135,7 +147,7 @@ const MetricsGraph = ({ labels, datasets, lastUpdated, status, type, onPress, hi
             withVerticalLabels={true}
             withHorizontalLabels={true}
             fromZero={true}
-            segments={3}
+            segments={yAxisSegments}
             withDots={true}
             withShadow={false}
             transparent={true}

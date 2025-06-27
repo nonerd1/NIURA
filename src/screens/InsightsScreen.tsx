@@ -11,7 +11,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart, BarChart } from 'react-native-chart-kit';
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../theme/colors';
-import { eegService, Recommendation as BackendRecommendation, AggregateRange } from '../services/eegService';
+import { eegService, Recommendation as BackendRecommendation, FocusTimeData } from '../services/eegService';
+import { AggregateRange } from '../types/eeg';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -30,6 +31,10 @@ const InsightsScreen = () => {
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(true);
   const [aggregateData, setAggregateData] = useState<any>(null);
   const [isLoadingAggregate, setIsLoadingAggregate] = useState(true);
+  const [focusTimeData, setFocusTimeData] = useState<FocusTimeData | null>(null);
+  const [isLoadingFocusTime, setIsLoadingFocusTime] = useState<boolean>(true);
+  const [timeOfDayPattern, setTimeOfDayPattern] = useState<{ labels: string[]; focus: number[]; stress: number[] } | null>(null);
+  const [isLoadingTimeOfDay, setIsLoadingTimeOfDay] = useState<boolean>(true);
   const navigation = useNavigation();
 
   useEffect(() => {
@@ -39,6 +44,36 @@ const InsightsScreen = () => {
   useEffect(() => {
     loadAggregateData();
   }, [selectedTimeRange]);
+
+  useEffect(() => {
+    const fetchFocusTime = async () => {
+      setIsLoadingFocusTime(true);
+      try {
+        const data = await eegService.getBestFocusTime();
+        setFocusTimeData(data);
+      } catch (error) {
+        setFocusTimeData(null);
+      } finally {
+        setIsLoadingFocusTime(false);
+      }
+    };
+    fetchFocusTime();
+  }, []);
+
+  useEffect(() => {
+    const fetchTimeOfDayPattern = async () => {
+      setIsLoadingTimeOfDay(true);
+      try {
+        const data = await eegService.getTimeOfDayPattern();
+        setTimeOfDayPattern(data);
+      } catch (error) {
+        setTimeOfDayPattern(null);
+      } finally {
+        setIsLoadingTimeOfDay(false);
+      }
+    };
+    fetchTimeOfDayPattern();
+  }, []);
 
   const loadRecommendations = async () => {
     try {
@@ -55,18 +90,10 @@ const InsightsScreen = () => {
     setIsLoadingAggregate(true);
     try {
       const data = await eegService.getEEGAggregate(selectedTimeRange);
-      
       const formattedData = eegService.formatAggregateForChart(data);
-      
-      // If formatting failed (returned null), use dummy data instead of crashing
-      if (formattedData) {
-        setAggregateData(formattedData);
-      } else {
-        setAggregateData(null); // This will trigger dummy data usage in getCurrentData
-      }
+      setAggregateData(formattedData);
     } catch (error) {
       console.error('Error loading aggregate data:', error);
-      // Use dummy data on error
       setAggregateData(null);
     } finally {
       setIsLoadingAggregate(false);
@@ -206,12 +233,6 @@ const InsightsScreen = () => {
   const renderTimeRangeSelector = () => (
     <View style={styles.timeRangeSelector}>
       <TouchableOpacity 
-        style={[styles.timeRangeButton, selectedTimeRange === 'daily' && styles.activeTimeRange]}
-        onPress={() => setSelectedTimeRange('daily')}
-      >
-        <Text style={[styles.timeRangeText, selectedTimeRange === 'daily' && styles.activeTimeRangeText]}>Daily</Text>
-      </TouchableOpacity>
-      <TouchableOpacity 
         style={[styles.timeRangeButton, selectedTimeRange === 'weekly' && styles.activeTimeRange]}
         onPress={() => setSelectedTimeRange('weekly')}
       >
@@ -223,13 +244,24 @@ const InsightsScreen = () => {
       >
         <Text style={[styles.timeRangeText, selectedTimeRange === 'monthly' && styles.activeTimeRangeText]}>Monthly</Text>
       </TouchableOpacity>
+      <TouchableOpacity 
+        style={[styles.timeRangeButton, selectedTimeRange === 'yearly' && styles.activeTimeRange]}
+        onPress={() => setSelectedTimeRange('yearly')}
+      >
+        <Text style={[styles.timeRangeText, selectedTimeRange === 'yearly' && styles.activeTimeRangeText]}>Yearly</Text>
+      </TouchableOpacity>
     </View>
   );
 
   const getCurrentData = () => {
     // Use real aggregate data if available, otherwise fallback to dummy data
-    if (aggregateData) {
-      console.log('Using real aggregate data for chart, range:', selectedTimeRange);
+    if (aggregateData && aggregateData.labels && aggregateData.focusData && aggregateData.stressData) {
+      console.log('[InsightsScreen] Chart Data:', {
+        range: selectedTimeRange,
+        labels: aggregateData.labels,
+        focusData: aggregateData.focusData,
+        stressData: aggregateData.stressData
+      });
       return {
         labels: aggregateData.labels,
         datasets: [
@@ -247,9 +279,7 @@ const InsightsScreen = () => {
         legend: ["Focus", "Stress"]
       };
     }
-
     // Fallback to dummy data based on selected time range
-    console.log('Using dummy data for chart, range:', selectedTimeRange);
     switch(selectedTimeRange) {
       case 'daily':
         return dailyData;
@@ -298,7 +328,9 @@ const InsightsScreen = () => {
     <ScrollView style={styles.container}>
       <View style={styles.contentContainer}>
         <View style={styles.header}>
-          <Text style={styles.screenTitle}>Insights</Text>
+          <View style={{ alignItems: 'center', width: '100%' }}>
+            <Text style={[styles.screenTitle, { textAlign: 'center', width: '100%' }]}>Insights</Text>
+          </View>
         </View>
 
         {/* Historical Data & Trends */}
@@ -364,33 +396,56 @@ const InsightsScreen = () => {
           
           <View style={styles.analysisContainer}>
             <Text style={styles.analysisTitle}>Time of Day Impact</Text>
-            <View style={styles.timeOfDayContainer}>
-              {dailyPatternData.data.map((item, index) => (
-                <View key={index} style={styles.timeOfDayItem}>
-                  <Text style={styles.timeOfDayLabel}>{dailyPatternData.labels[index]}</Text>
-                  <View style={styles.metricsContainer}>
-                    <View style={[styles.metricBar, { height: item.focus * 30, backgroundColor: '#4287f5' }]} />
-                    <View style={[styles.metricBar, { height: item.stress * 30, backgroundColor: '#FFA500' }]} />
-                  </View>
-                  <View style={styles.metricLabelsContainer}>
-                    <Text style={[styles.metricLabel, { color: '#4287f5' }]}>{item.focus.toFixed(1)}</Text>
-                    <Text style={[styles.metricLabel, { color: '#FFA500' }]}>{item.stress.toFixed(1)}</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-            
-            <View style={styles.insightCard}>
-              <MaterialCommunityIcons 
-                name={"lightbulb-on" as any} 
-                size={24} 
-                color="#FFD700" 
-                style={styles.insightIcon} 
+            {isLoadingTimeOfDay ? (
+              <Text>Loading time-of-day analysis...</Text>
+            ) : timeOfDayPattern && timeOfDayPattern.labels && timeOfDayPattern.focus && timeOfDayPattern.stress ? (
+              <BarChart
+                data={{
+                  labels: timeOfDayPattern.labels,
+                  datasets: [
+                    {
+                      data: timeOfDayPattern.focus,
+                      color: (opacity = 1) => '#4287f5',
+                    },
+                    {
+                      data: timeOfDayPattern.stress,
+                      color: (opacity = 1) => '#FFA500',
+                    },
+                  ],
+                }}
+                width={screenWidth - 60}
+                height={180}
+                yAxisLabel=""
+                yAxisSuffix=""
+                chartConfig={{
+                  backgroundColor: colors.background.dark,
+                  backgroundGradientFrom: colors.background.dark,
+                  backgroundGradientTo: colors.background.dark,
+                  decimalPlaces: 1,
+                  color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                  labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                  style: {
+                    borderRadius: 16,
+                  },
+                  propsForDots: {
+                    r: '4',
+                    strokeWidth: '2',
+                  },
+                  barPercentage: 0.6,
+                }}
+                style={{
+                  ...styles.chart,
+                  alignSelf: 'center',
+                }}
+                fromZero
+                segments={3}
+                showValuesOnTopOfBars
+                withHorizontalLabels={true}
+                withVerticalLabels={true}
               />
-              <Text style={styles.insightText}>
-                Your focus is highest during morning and midday, while stress tends to increase in the evening.
-              </Text>
-            </View>
+            ) : (
+              <Text>No time-of-day analysis available.</Text>
+            )}
           </View>
         </View>
 
@@ -699,6 +754,11 @@ const styles = StyleSheet.create({
   legendText: {
     fontSize: 12,
     color: '#7a889e',
+  },
+  analysisText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    marginBottom: 5,
   },
 });
 

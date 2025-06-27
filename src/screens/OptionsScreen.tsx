@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   Alert,
   ActivityIndicator,
   StyleSheet,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -16,6 +18,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/navigation';
 import { useTheme } from '../context/ThemeContext';
 import { authService } from '../services/auth';
+import { notificationService } from '../services/notificationService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -25,8 +29,23 @@ interface SettingsSectionProps {
   children: React.ReactNode;
 }
 
+interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string;
+  gender: string;
+  created_at: string;
+}
+
+interface UserPreferences {
+  focus_alert_threshold: number;
+  stress_alert_threshold: number;
+  notifications_enabled: boolean;
+  dark_mode_enabled: boolean;
+}
+
 const SettingsSection: React.FC<SettingsSectionProps> = ({ title, icon, children }) => {
-  const { colors } = useTheme();
+  const { colors, getScaledFontSize } = useTheme();
   return (
     <View style={{
       backgroundColor: colors.background.card,
@@ -44,7 +63,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ title, icon, children
       }}>
         <MaterialCommunityIcons name={icon as any} size={24} color={colors.primary.main} />
         <Text style={{
-          fontSize: 18,
+          fontSize: getScaledFontSize(18),
           fontWeight: '600',
           color: colors.text.primary,
           marginLeft: 10,
@@ -74,7 +93,7 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
   showChevron = true,
   isLast = false
 }) => {
-  const { colors } = useTheme();
+  const { colors, getScaledFontSize } = useTheme();
   return (
     <TouchableOpacity 
       style={[
@@ -91,14 +110,14 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
       }}>
         <View style={{ flex: 1, paddingRight: 10 }}>
           <Text style={{
-            fontSize: 16,
+            fontSize: getScaledFontSize(16),
             fontWeight: '500',
             color: colors.text.primary,
             marginBottom: 4,
           }}>{title}</Text>
           {description && (
             <Text style={{
-              fontSize: 14,
+              fontSize: getScaledFontSize(14),
               color: colors.text.secondary,
             }}>{description}</Text>
           )}
@@ -114,22 +133,353 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
   );
 };
 
+const ThresholdModal: React.FC<{
+  visible: boolean;
+  onClose: () => void;
+  title: string;
+  currentValue: number;
+  onSave: (value: number) => void;
+  type: 'focus' | 'stress';
+}> = ({ visible, onClose, title, currentValue, onSave, type }) => {
+  const { colors, getScaledFontSize } = useTheme();
+  const [value, setValue] = useState(currentValue);
+
+  useEffect(() => {
+    setValue(currentValue);
+  }, [currentValue]);
+
+  const getValueLabel = (val: number) => {
+    if (val < 1.0) return 'Low';
+    if (val < 2.0) return 'Medium';
+    return 'High';
+  };
+
+  const getValueDescription = (val: number) => {
+    if (type === 'focus') {
+      if (val < 1.0) return 'Rarely alert for low focus periods';
+      if (val < 2.0) return 'Alert when focus drops to moderate levels';
+      return 'Alert immediately when focus begins to decline';
+    } else {
+      if (val < 1.0) return 'Only alert for severe stress levels';
+      if (val < 2.0) return 'Alert when stress reaches moderate levels';
+      return 'Alert for any stress level increase';
+    }
+  };
+
+  const presetValues = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0];
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background.dark }}>
+        <View style={{ flex: 1, padding: 20 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={{ color: colors.primary.main, fontSize: getScaledFontSize(16) }}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={{ fontSize: getScaledFontSize(18), fontWeight: 'bold', color: colors.text.primary }}>{title}</Text>
+            <TouchableOpacity onPress={() => { onSave(value); onClose(); }}>
+              <Text style={{ color: colors.primary.main, fontSize: getScaledFontSize(16), fontWeight: 'bold' }}>Save</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={{ backgroundColor: colors.background.card, borderRadius: 16, padding: 20, marginBottom: 20 }}>
+            <Text style={{ fontSize: getScaledFontSize(24), fontWeight: 'bold', color: colors.text.primary, textAlign: 'center', marginBottom: 8 }}>
+              {getValueLabel(value)} ({value.toFixed(1)})
+            </Text>
+            <Text style={{ fontSize: getScaledFontSize(14), color: colors.text.secondary, textAlign: 'center' }}>
+              {getValueDescription(value)}
+            </Text>
+          </View>
+          
+          <View style={{ backgroundColor: colors.background.card, borderRadius: 16, padding: 20 }}>
+            <Text style={{ fontSize: getScaledFontSize(16), fontWeight: 'bold', color: colors.text.primary, marginBottom: 16 }}>
+              Select Threshold Level
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+              {presetValues.map((presetValue) => (
+                <TouchableOpacity
+                  key={presetValue}
+                  style={{
+                    width: '30%',
+                    backgroundColor: value === presetValue ? colors.primary.main : colors.background.dark,
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 12,
+                    alignItems: 'center',
+                    borderWidth: 2,
+                    borderColor: value === presetValue ? colors.primary.main : '#313e5c',
+                  }}
+                  onPress={() => setValue(presetValue)}
+                >
+                  <Text style={{ 
+                    color: value === presetValue ? '#FFFFFF' : colors.text.primary, 
+                    fontSize: getScaledFontSize(16), 
+                    fontWeight: 'bold' 
+                  }}>
+                    {presetValue.toFixed(1)}
+                  </Text>
+                  <Text style={{ 
+                    color: value === presetValue ? '#FFFFFF' : colors.text.secondary, 
+                    fontSize: getScaledFontSize(12), 
+                    marginTop: 4 
+                  }}>
+                    {getValueLabel(presetValue)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            <View style={{ marginTop: 20 }}>
+              <Text style={{ fontSize: getScaledFontSize(14), color: colors.text.secondary, marginBottom: 10 }}>
+                Or enter custom value (0.5 - 3.0):
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: colors.background.dark,
+                  borderRadius: 8,
+                  padding: 12,
+                  color: colors.text.primary,
+                  fontSize: getScaledFontSize(16),
+                  borderWidth: 1,
+                  borderColor: '#313e5c',
+                }}
+                value={value.toString()}
+                onChangeText={(text) => {
+                  const numValue = parseFloat(text);
+                  if (!isNaN(numValue) && numValue >= 0.5 && numValue <= 3.0) {
+                    setValue(numValue);
+                  }
+                }}
+                keyboardType="decimal-pad"
+                placeholder="2.5"
+                placeholderTextColor={colors.text.secondary}
+              />
+            </View>
+          </View>
+          
+          <View style={{ backgroundColor: colors.background.card, borderRadius: 16, padding: 20, marginTop: 20 }}>
+            <Text style={{ fontSize: getScaledFontSize(16), fontWeight: 'bold', color: colors.text.primary, marginBottom: 10 }}>
+              What do these values mean?
+            </Text>
+            <Text style={{ fontSize: getScaledFontSize(14), color: colors.text.secondary, lineHeight: 20 }}>
+              {type === 'focus' 
+                ? 'Focus levels range from 0 (completely unfocused) to 3 (maximum focus). Set your threshold to determine when you want to receive alerts about declining focus.'
+                : 'Stress levels range from 0 (completely relaxed) to 3 (maximum stress). Set your threshold to determine when you want to receive alerts about increasing stress levels.'
+              }
+            </Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+};
+
+const TextSizeModal: React.FC<{
+  visible: boolean;
+  onClose: () => void;
+  currentScale: 'small' | 'medium' | 'large';
+  onSelectScale: (scale: 'small' | 'medium' | 'large') => void;
+}> = ({ visible, onClose, currentScale, onSelectScale }) => {
+  const { colors, getScaledFontSize } = useTheme();
+
+  const textSizeOptions = [
+    { scale: 'small' as const, label: 'Small', description: 'Easier on eyes, compact layout' },
+    { scale: 'medium' as const, label: 'Medium', description: 'Default comfortable size' },
+    { scale: 'large' as const, label: 'Large', description: 'Better readability, larger text' },
+  ];
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background.dark }}>
+        <View style={{ flex: 1, padding: 20 }}>
+          <View style={{ 
+            flexDirection: 'row', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            marginBottom: 30 
+          }}>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={{ color: colors.primary.main, fontSize: getScaledFontSize(16) }}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={{ 
+              fontSize: getScaledFontSize(18), 
+              fontWeight: 'bold', 
+              color: colors.text.primary 
+            }}>Text Size</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={{ 
+                color: colors.primary.main, 
+                fontSize: getScaledFontSize(16), 
+                fontWeight: 'bold' 
+              }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={{ 
+            backgroundColor: colors.background.card, 
+            borderRadius: 16, 
+            padding: 20, 
+            marginBottom: 20 
+          }}>
+            <Text style={{ 
+              fontSize: getScaledFontSize(16), 
+              fontWeight: 'bold', 
+              color: colors.text.primary, 
+              marginBottom: 16 
+            }}>
+              Choose Text Size
+            </Text>
+            
+            {textSizeOptions.map((option) => (
+              <TouchableOpacity
+                key={option.scale}
+                style={{
+                  backgroundColor: currentScale === option.scale ? colors.primary.main : 'transparent',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 12,
+                  borderWidth: 2,
+                  borderColor: currentScale === option.scale ? colors.primary.main : '#313e5c',
+                }}
+                onPress={() => onSelectScale(option.scale)}
+              >
+                <Text style={{ 
+                  color: currentScale === option.scale ? '#FFFFFF' : colors.text.primary, 
+                  fontSize: getScaledFontSize(16), 
+                  fontWeight: 'bold',
+                  marginBottom: 4,
+                }}>
+                  {option.label}
+                </Text>
+                <Text style={{ 
+                  color: currentScale === option.scale ? '#FFFFFF' : colors.text.secondary, 
+                  fontSize: getScaledFontSize(14),
+                }}>
+                  {option.description}
+                </Text>
+                <View style={{ marginTop: 8 }}>
+                  <Text style={{ 
+                    color: currentScale === option.scale ? '#FFFFFF' : colors.text.primary, 
+                    fontSize: option.scale === 'small' ? 14 : option.scale === 'medium' ? 16 : 18,
+                  }}>
+                    Sample text at this size
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+          
+          <View style={{ 
+            backgroundColor: colors.background.card, 
+            borderRadius: 16, 
+            padding: 20 
+          }}>
+            <Text style={{ 
+              fontSize: getScaledFontSize(16), 
+              fontWeight: 'bold', 
+              color: colors.text.primary, 
+              marginBottom: 10 
+            }}>
+              About Text Size
+            </Text>
+            <Text style={{ 
+              fontSize: getScaledFontSize(14), 
+              color: colors.text.secondary, 
+              lineHeight: 20 
+            }}>
+              Changing text size affects all text throughout the app. This helps improve readability and accessibility based on your preference.
+            </Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+};
+
 const OptionsScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
-  const { isDarkMode, toggleTheme, colors } = useTheme();
-  const [settings, setSettings] = useState({
-    notifications: true,
-    darkMode: false,
-    hapticFeedback: true,
-    autoConnect: true,
-  });
+  const { isDarkMode, toggleTheme, colors, textSizeScale, setTextSizeScale, getScaledFontSize, updateFromBackendPreferences } = useTheme();
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [showThresholdModal, setShowThresholdModal] = useState<'focus' | 'stress' | null>(null);
+  const [showTextSizeModal, setShowTextSizeModal] = useState(false);
+  const [notificationPermissionStatus, setNotificationPermissionStatus] = useState<boolean | null>(null);
 
-  const toggleSetting = (key: keyof typeof settings) => {
-    setSettings(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
+  useEffect(() => {
+    loadUserData();
+    checkNotificationPermissions();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      setIsLoading(true);
+      const [profile, preferences] = await Promise.all([
+        authService.getUserProfile(),
+        authService.getUserPreferences()
+      ]);
+      setUserProfile(profile);
+      setUserPreferences(preferences);
+      
+      // Sync theme with backend preferences
+      await updateFromBackendPreferences(preferences);
+    } catch (error: any) {
+      console.error('Error loading user data:', error);
+      Alert.alert('Error', 'Failed to load user settings. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const checkNotificationPermissions = async () => {
+    try {
+      const hasPermission = await notificationService.checkPermissions();
+      setNotificationPermissionStatus(hasPermission);
+    } catch (error) {
+      console.error('Error checking notification permissions:', error);
+    }
+  };
+
+  const handlePreferenceUpdate = async (updates: Partial<UserPreferences>) => {
+    if (!userPreferences) return;
+
+    try {
+      const response = await authService.updateUserPreferences(updates);
+      setUserPreferences(response.preferences);
+      
+      // Store local preferences for app appearance
+      if (updates.dark_mode_enabled !== undefined) {
+        await AsyncStorage.setItem('darkMode', JSON.stringify(updates.dark_mode_enabled));
+      }
+      
+      Alert.alert('Success', 'Preferences updated successfully');
+    } catch (error: any) {
+      console.error('Error updating preferences:', error);
+      Alert.alert('Error', 'Failed to update preferences. Please try again.');
+    }
+  };
+
+  const handleNotificationToggle = async (enabled: boolean) => {
+    if (enabled && !notificationPermissionStatus) {
+      // Request permission first
+      const permissionResult = await notificationService.requestPermissions();
+      setNotificationPermissionStatus(permissionResult.granted);
+      
+      if (!permissionResult.granted) {
+        Alert.alert(
+          'Permission Required',
+          'Please enable notifications in your device settings to receive alerts.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => {/* Open settings if possible */} }
+          ]
+        );
+        return;
+      }
+    }
+    
+    handlePreferenceUpdate({ notifications_enabled: enabled });
   };
 
   const handleDeleteAccount = async () => {
@@ -169,31 +519,55 @@ const OptionsScreen: React.FC = () => {
     );
   };
 
-  const userProfile = {
-    name: 'Pari Patel',
-    email: 'pari@niura.io',
-    thresholds: {
-      focus: 'High (2.6)',
-      stress: 'Low (1.2)'
+  const getThresholdLabel = (value: number) => {
+    if (value < 1.0) return 'Low';
+    if (value < 2.0) return 'Medium';
+    return 'High';
+  };
+
+  const handleDarkModeToggle = async (value: boolean) => {
+    // Update local theme immediately
+    if (value !== isDarkMode) {
+      await toggleTheme();
     }
+    
+    // Also update server preferences
+    handlePreferenceUpdate({ dark_mode_enabled: value });
   };
-  
-  const deviceInfo = {
-    name: 'Niura Alpha Earbuds',
-    firmware: 'v1.2.4',
-    battery: '78%',
-    lastSync: '10 minutes ago'
+
+  const handleTextSizeChange = async (scale: 'small' | 'medium' | 'large') => {
+    await setTextSizeScale(scale);
+    setShowTextSizeModal(false);
+    
+    // Show a brief success message since this is saved locally only
+    Alert.alert(
+      'Text Size Updated', 
+      'Your text size preference has been saved locally and will be remembered on this device.'
+    );
   };
+
+  const getTextSizeLabel = (scale: 'small' | 'medium' | 'large') => {
+    return scale.charAt(0).toUpperCase() + scale.slice(1);
+  };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background.dark }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={colors.primary.main} />
+          <Text style={{ color: colors.text.secondary, marginTop: 16 }}>Loading settings...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background.dark }}>
       <View style={{ flex: 1, backgroundColor: colors.background.dark }}>
-        <View style={{ paddingTop: 20, paddingHorizontal: 20, paddingBottom: 10 }}>
-          <Text style={{
-            fontSize: 28,
-            fontWeight: 'bold',
-            color: colors.text.primary,
-          }}>Options</Text>
+        <View style={styles.header}>
+          <View style={{ alignItems: 'center', width: '100%' }}>
+            <Text style={[styles.screenTitle, { textAlign: 'center', width: '100%' }]}>Options</Text>
+          </View>
         </View>
         
         <ScrollView 
@@ -204,27 +578,28 @@ const OptionsScreen: React.FC = () => {
           <SettingsSection title="User Profile & Preferences" icon="account-cog">
             <SettingsItem
               title="Profile Information"
-              description={`${userProfile.name} • ${userProfile.email}`}
-              onPress={() => {/* Navigate to profile edit screen */}}
+              description={userProfile ? `${userProfile.full_name} • ${userProfile.email}` : 'Loading...'}
+              onPress={() => navigation.navigate('EditProfile')}
             />
             <SettingsItem
               title="Focus Alert Threshold"
-              description={userProfile.thresholds.focus}
-              onPress={() => {/* Navigate to threshold settings */}}
+              description={userPreferences ? `${getThresholdLabel(userPreferences.focus_alert_threshold)} (${userPreferences.focus_alert_threshold.toFixed(1)})` : 'Loading...'}
+              onPress={() => setShowThresholdModal('focus')}
             />
             <SettingsItem
               title="Stress Alert Threshold"
-              description={userProfile.thresholds.stress}
-              onPress={() => {/* Navigate to threshold settings */}}
+              description={userPreferences ? `${getThresholdLabel(userPreferences.stress_alert_threshold)} (${userPreferences.stress_alert_threshold.toFixed(1)})` : 'Loading...'}
+              onPress={() => setShowThresholdModal('stress')}
             />
             <SettingsItem
               title="Notifications"
+              description={notificationPermissionStatus === false ? 'Permission required' : undefined}
               rightElement={
                 <Switch
-                  value={settings.notifications}
-                  onValueChange={() => toggleSetting('notifications')}
+                  value={userPreferences?.notifications_enabled || false}
+                  onValueChange={handleNotificationToggle}
                   trackColor={{ false: '#313e5c', true: '#4287f5' }}
-                  thumbColor={settings.notifications ? '#FFFFFF' : '#7a889e'}
+                  thumbColor={userPreferences?.notifications_enabled ? '#FFFFFF' : '#7a889e'}
                 />
               }
               showChevron={false}
@@ -238,18 +613,18 @@ const OptionsScreen: React.FC = () => {
               title="Dark Mode"
               rightElement={
                 <Switch
-                  value={settings.darkMode}
-                  onValueChange={() => toggleSetting('darkMode')}
+                  value={isDarkMode}
+                  onValueChange={handleDarkModeToggle}
                   trackColor={{ false: '#313e5c', true: '#4287f5' }}
-                  thumbColor={settings.darkMode ? '#FFFFFF' : '#7a889e'}
+                  thumbColor={isDarkMode ? '#FFFFFF' : '#7a889e'}
                 />
               }
               showChevron={false}
             />
             <SettingsItem
               title="Text Size"
-              description="Medium"
-              onPress={() => {/* Navigate to text size settings */}}
+              description={getTextSizeLabel(textSizeScale)}
+              onPress={() => setShowTextSizeModal(true)}
               isLast={true}
             />
           </SettingsSection>
@@ -294,18 +669,106 @@ const OptionsScreen: React.FC = () => {
               isLast={true}
             />
           </SettingsSection>
+
+          {/* Debug & Testing Section (only in development) */}
+          {__DEV__ && (
+            <SettingsSection title="Debug & Testing" icon="bug">
+              <SettingsItem
+                title="Test Focus Alert"
+                description="Trigger a focus alert notification"
+                rightElement={<MaterialCommunityIcons name="brain" size={20} color="#ffa500" />}
+                onPress={async () => {
+                  try {
+                    // Simulate focus dropping below threshold
+                    await notificationService.checkThresholdAlerts(1.0, 2.0); // Low focus, normal stress
+                    Alert.alert('Debug', 'Focus alert test triggered (if threshold allows)');
+                  } catch (error) {
+                    Alert.alert('Error', 'Failed to test focus alert');
+                  }
+                }}
+                showChevron={false}
+              />
+              <SettingsItem
+                title="Test Stress Alert"
+                description="Trigger a stress alert notification"
+                rightElement={<MaterialCommunityIcons name="heart-pulse" size={20} color="#ff6b6b" />}
+                onPress={async () => {
+                  try {
+                    // Simulate stress exceeding threshold
+                    await notificationService.checkThresholdAlerts(2.5, 2.8); // Good focus, high stress
+                    Alert.alert('Debug', 'Stress alert test triggered (if threshold allows)');
+                  } catch (error) {
+                    Alert.alert('Error', 'Failed to test stress alert');
+                  }
+                }}
+                showChevron={false}
+              />
+              <SettingsItem
+                title="Reset Alert States"
+                description="Clear notification throttling states"
+                rightElement={<MaterialCommunityIcons name="refresh" size={20} color="#4287f5" />}
+                onPress={() => {
+                  notificationService.resetAlertStates();
+                  Alert.alert('Debug', 'Alert states reset - notifications will trigger again');
+                }}
+                showChevron={false}
+              />
+              <SettingsItem
+                title="View Alert States"
+                description="Show current notification throttling status"
+                rightElement={<MaterialCommunityIcons name="information" size={20} color="#17a2b8" />}
+                onPress={() => {
+                  const states = notificationService.getAlertStates();
+                  Alert.alert('Alert States', 
+                    `Focus Alert Sent: ${states.focusAlertSent}\n` +
+                    `Stress Alert Sent: ${states.stressAlertSent}\n` +
+                    `Last Focus: ${states.lastFocusValue.toFixed(1)}\n` +
+                    `Last Stress: ${states.lastStressValue.toFixed(1)}`
+                  );
+                }}
+                showChevron={false}
+                isLast={true}
+              />
+            </SettingsSection>
+          )}
           
           <View style={{
             alignItems: 'center',
             marginVertical: 20,
           }}>
             <Text style={{
-              fontSize: 14,
+              fontSize: getScaledFontSize(14),
               color: colors.text.secondary,
             }}>Version 1.0.0 (Alpha)</Text>
           </View>
         </ScrollView>
       </View>
+
+      {/* Threshold Configuration Modals */}
+      {showThresholdModal && userPreferences && (
+        <ThresholdModal
+          visible={true}
+          onClose={() => setShowThresholdModal(null)}
+          title={`${showThresholdModal === 'focus' ? 'Focus' : 'Stress'} Alert Threshold`}
+          currentValue={showThresholdModal === 'focus' ? userPreferences.focus_alert_threshold : userPreferences.stress_alert_threshold}
+          onSave={(value) => {
+            handlePreferenceUpdate({
+              [showThresholdModal === 'focus' ? 'focus_alert_threshold' : 'stress_alert_threshold']: value
+            });
+          }}
+          type={showThresholdModal}
+        />
+      )}
+
+      {/* Text Size Modal */}
+      {showTextSizeModal && (
+        <TextSizeModal
+          visible={true}
+          onClose={() => setShowTextSizeModal(false)}
+          currentScale={textSizeScale}
+          onSelectScale={handleTextSizeChange}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -335,6 +798,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 8,
+  },
+  header: {
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  screenTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
   },
 });
 

@@ -22,8 +22,8 @@ import { colors } from '../theme/colors';
 type EditProfileScreenProps = NativeStackScreenProps<RootStackParamList, 'EditProfile'>;
 
 const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [gender, setGender] = useState('');
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
@@ -35,10 +35,25 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
   const loadCurrentUser = async () => {
     try {
       setIsLoadingProfile(true);
+      
+      // Try to get user profile from backend first
+      try {
+        const userProfile = await authService.getUserProfile();
+        if (userProfile) {
+          setFullName(userProfile.full_name || '');
+          setGender(userProfile.gender || '');
+          setEmail(userProfile.email || '');
+          return;
+        }
+      } catch (error) {
+        console.warn('Failed to fetch user profile from backend, falling back to local data:', error);
+      }
+      
+      // Fallback to local user data
       const user = await authService.getCurrentUser();
       if (user) {
-        setFirstName(user.firstName || '');
-        setLastName(user.lastName || '');
+        setFullName(`${user.firstName || ''} ${user.lastName || ''}`.trim());
+        setGender(''); // No gender in local user data
         setEmail(user.email || '');
       }
     } catch (error) {
@@ -50,24 +65,16 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
   };
 
   const handleUpdateProfile = async () => {
-    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
+    if (!fullName.trim() || !gender.trim()) {
       Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
       return;
     }
 
     try {
       setIsLoading(true);
-      await authService.updateUserProfile({
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
-        email: email.trim(),
+      await authService.updateProfile({
+        full_name: fullName.trim(),
+        gender: gender.trim(),
       });
       
       Alert.alert(
@@ -116,25 +123,25 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
           <View style={styles.content}>
             <View style={styles.form}>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>First Name</Text>
+                <Text style={styles.inputLabel}>Full Name</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your first name"
+                  placeholder="Enter your full name"
                   placeholderTextColor="#666666"
-                  value={firstName}
-                  onChangeText={setFirstName}
+                  value={fullName}
+                  onChangeText={setFullName}
                   autoCapitalize="words"
                 />
               </View>
 
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Last Name</Text>
+                <Text style={styles.inputLabel}>Gender</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your last name"
+                  placeholder="Enter your gender"
                   placeholderTextColor="#666666"
-                  value={lastName}
-                  onChangeText={setLastName}
+                  value={gender}
+                  onChangeText={setGender}
                   autoCapitalize="words"
                 />
               </View>
@@ -142,14 +149,15 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Email</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, styles.readOnlyInput]}
                   placeholder="Enter your email"
                   placeholderTextColor="#666666"
                   value={email}
-                  onChangeText={setEmail}
+                  editable={false}
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
+                <Text style={styles.readOnlyNote}>Email cannot be changed</Text>
               </View>
 
               <TouchableOpacity
@@ -236,6 +244,14 @@ const styles = StyleSheet.create({
     padding: 15,
     fontSize: 16,
     color: '#FFFFFF',
+  },
+  readOnlyInput: {
+    backgroundColor: '#2A3442',
+  },
+  readOnlyNote: {
+    color: '#666666',
+    fontSize: 12,
+    marginTop: 4,
   },
   updateButton: {
     backgroundColor: colors.primary.main,

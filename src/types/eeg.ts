@@ -1,0 +1,1 @@
+export type AggregateRange = 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'; 

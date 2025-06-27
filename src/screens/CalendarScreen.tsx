@@ -23,20 +23,10 @@ import { eventsService, Event, CreateEventRequest, BackendEventCreate } from '..
 import { notificationService } from '../services/notificationService';
 import { useSessionHistory } from '../hooks/useSessionHistory';
 import { sessionService } from '../services/sessionService';
+import { useGoals } from '../hooks/useGoals';
+import { Goal } from '../services/goalsService';
 
 const screenWidth = Dimensions.get('window').width;
-
-interface Goal {
-  id: string;
-  title: string;
-  target: number;
-  current: number;
-  startDate: string;
-  endDate: string;
-  type: 'focus' | 'stress' | 'custom';
-  trackingType: 'sessions' | 'minutes' | 'focus_score' | 'stress_episodes' | 'manual';
-  targetMetric?: string; // e.g., 'focus_sessions', 'meditation_minutes', 'low_stress_days'
-}
 
 interface FocusStressData {
   [date: string]: {
@@ -47,13 +37,13 @@ interface FocusStressData {
   };
 }
 
-// Goal tracking service
+// Goal tracking service - Updated for new Goal interface
 class GoalTrackingService {
   static calculateGoalProgress(goal: Goal, sessions: any[]): number {
     if (!sessions || sessions.length === 0) return goal.current;
     
-    const goalStartDate = new Date(goal.startDate);
-    const goalEndDate = new Date(goal.endDate);
+    const goalStartDate = goal.startDate ? new Date(goal.startDate) : new Date();
+    const goalEndDate = goal.endDate ? new Date(goal.endDate) : new Date();
     
     // Filter sessions within goal date range
     const relevantSessions = sessions.filter(session => {
@@ -115,9 +105,10 @@ class GoalTrackingService {
     return [
       {
         id: '1',
-        title: 'Complete 10 focus sessions this month',
+        name: 'Complete 10 focus sessions this month',
         target: 10,
         current: 0,
+        unit: 'sessions',
         startDate: monthStart,
         endDate: monthEnd,
         type: 'focus',
@@ -126,9 +117,10 @@ class GoalTrackingService {
       },
       {
         id: '2',
-        title: 'Meditate for 60 minutes this month',
+        name: 'Meditate for 60 minutes this month',
         target: 60,
         current: 0,
+        unit: 'minutes',
         startDate: monthStart,
         endDate: monthEnd,
         type: 'stress',
@@ -137,9 +129,10 @@ class GoalTrackingService {
       },
       {
         id: '3',
-        title: 'Achieve high focus in 5 sessions',
+        name: 'Achieve high focus in 5 sessions',
         target: 5,
         current: 0,
+        unit: 'sessions',
         startDate: monthStart,
         endDate: monthEnd,
         type: 'focus',
@@ -164,6 +157,7 @@ const CalendarScreen = () => {
   } = useEvents();
   
   const { sessions, isLoading: sessionsLoading, refresh: refreshSessions } = useSessionHistory();
+  const { goals, addGoal, deleteGoal: removeGoal } = useGoals();
   
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [modalVisible, setModalVisible] = useState<boolean>(false);
@@ -181,47 +175,15 @@ const CalendarScreen = () => {
   });
   
   const [newGoal, setNewGoal] = useState<Partial<Goal>>({
-    title: '',
+    name: '',
     target: 10,
     current: 0,
+    unit: 'sessions',
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
     type: 'focus',
     trackingType: 'sessions'
   });
-  
-  const [goals, setGoals] = useState<Goal[]>([
-    {
-      id: '1',
-      title: 'Complete Deep Work Sessions',
-      target: 10,
-      current: 0,
-      startDate: '2025-01-01',
-      endDate: '2025-12-31',
-      type: 'stress',
-      trackingType: 'sessions'
-    },
-    {
-      id: '2',
-      title: 'Focus Training Hours',
-      target: 25,
-      current: 0,
-      startDate: '2025-01-01',
-      endDate: '2025-12-31',
-      type: 'focus',
-      trackingType: 'minutes'
-    },
-    {
-      id: '3',
-      title: 'Mindfulness Practice',
-      target: 15,
-      current: 0,
-      startDate: '2025-01-01',
-      endDate: '2025-12-31',
-      type: 'custom',
-      trackingType: 'sessions'
-    }
-  ]);
   
   const focusStressData: FocusStressData = {
     '2023-07-01': { focus: 2.1, stress: 1.3 },
@@ -362,12 +324,11 @@ const CalendarScreen = () => {
         const combinedDateTime = new Date(`${eventDate}T${eventTime}:00`);
         
         // Create event data that matches backend schema
+        // Backend expects 'date' to be a datetime, not just a date string
         const eventData = {
           title: newEvent.title,
           type: newEvent.type as Event['type'],
-          datetime: combinedDateTime.toISOString(),
-          date: eventDate,
-          time: eventTime,
+          date: combinedDateTime.toISOString(), // Backend expects datetime format for date field
           turnaround_time: durationInMinutes,
           description: `${newEvent.type} event`,
           priority: 'medium' as const,
@@ -403,24 +364,26 @@ const CalendarScreen = () => {
   };
 
   const handleAddGoal = () => {
-    if (newGoal.title && newGoal.target && newGoal.startDate && newGoal.endDate) {
+    if (newGoal.name && newGoal.target && newGoal.startDate && newGoal.endDate) {
       const goalData: Goal = {
         id: Date.now().toString(),
-        title: newGoal.title,
+        name: newGoal.name,
         target: newGoal.target,
         current: newGoal.current || 0,
+        unit: newGoal.unit || (newGoal.trackingType === 'minutes' ? 'mins' : 'sessions'),
         startDate: newGoal.startDate,
         endDate: newGoal.endDate,
         type: newGoal.type || 'focus',
         trackingType: newGoal.trackingType || 'sessions'
       };
       
-      setGoals(prevGoals => [...prevGoals, goalData]);
+      addGoal(goalData);
       setGoalModalVisible(false);
       setNewGoal({
-        title: '',
+        name: '',
         target: 10,
         current: 0,
+        unit: 'sessions',
         startDate: new Date().toISOString().split('T')[0],
         endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         type: 'focus',
@@ -443,7 +406,7 @@ const CalendarScreen = () => {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            setGoals(prevGoals => prevGoals.filter(goal => goal.id !== goalId));
+            removeGoal(goalId);
             Alert.alert('Success', 'Goal deleted successfully!');
           }
         }
@@ -544,7 +507,7 @@ const CalendarScreen = () => {
     const isOverAchieved = item.current > item.target;
     
     // Debug logging for progress calculation
-    console.log(`📊 Goal "${item.title}":`, {
+    console.log(`📊 Goal "${item.name}":`, {
       current: item.current,
       target: item.target,
       rawProgress: rawProgress,
@@ -577,7 +540,7 @@ const CalendarScreen = () => {
               />
             </View>
             <Text style={[styles.goalTitle, isCompleted && styles.goalTitleCompleted]}>
-              {item.title}
+              {item.name}
               {isCompleted && (
                 <Text style={styles.completedBadge}> ✅ COMPLETED</Text>
               )}
@@ -595,13 +558,13 @@ const CalendarScreen = () => {
             <Text style={styles.goalProgressText}>
               {isCompleted ? (
                 <>
-                  {item.target} / {item.target}
+                  {item.target} / {item.target} {item.unit}
                   {isOverAchieved && (
                     <Text style={styles.overAchievedText}> (+{item.current - item.target} bonus)</Text>
                   )}
                 </>
               ) : (
-                `${item.current} / ${item.target}`
+                `${item.current} / ${item.target} ${item.unit}`
               )}
             </Text>
             <Text style={[styles.goalProgressPercentage, isCompleted && styles.goalProgressPercentageCompleted]}>
@@ -625,11 +588,11 @@ const CalendarScreen = () => {
                       item.trackingType === 'minutes' ? 'Total minutes' :
                       item.trackingType === 'focus_score' ? 'High focus sessions' :
                       item.trackingType === 'stress_episodes' ? 'Low stress days' :
-                      'Manual updates'}
+                      'Real-time from EEG data'}
           </Text>
         </View>
         <Text style={styles.goalDateRange}>
-          {item.startDate} to {item.endDate}
+          {item.startDate && item.endDate ? `${item.startDate} to ${item.endDate}` : 'Real-time tracking'}
         </Text>
       </View>
     );
@@ -930,8 +893,8 @@ const CalendarScreen = () => {
                   style={styles.formInput}
                   placeholder="Enter your goal..."
                   placeholderTextColor="#7a889e"
-                  value={newGoal.title}
-                  onChangeText={text => setNewGoal({ ...newGoal, title: text })}
+                  value={newGoal.name}
+                  onChangeText={text => setNewGoal({ ...newGoal, name: text })}
                 />
               </View>
               
@@ -986,7 +949,7 @@ const CalendarScreen = () => {
                     { value: 'sessions', label: 'Sessions', icon: 'counter', color: '#27ae60' },
                     { value: 'minutes', label: 'Minutes', icon: 'clock-outline', color: '#3498db' },
                     { value: 'focus_score', label: 'High Focus', icon: 'brain', color: '#e74c3c' },
-                    { value: 'manual', label: 'Manual', icon: 'hand-back-left', color: '#95a5a6' }
+                    { value: 'stress_episodes', label: 'Low Stress Episodes', icon: 'sleep', color: '#9b59b6' }
                   ].map((trackingType) => (
                     <TouchableOpacity
                       key={trackingType.value}
@@ -1053,10 +1016,10 @@ const CalendarScreen = () => {
               <TouchableOpacity 
                 style={[
                   styles.submitButton,
-                  (!newGoal.title || !newGoal.target || !newGoal.startDate || !newGoal.endDate) && styles.submitButtonDisabled
+                  (!newGoal.name || !newGoal.target || !newGoal.startDate || !newGoal.endDate) && styles.submitButtonDisabled
                 ]}
                 onPress={handleAddGoal}
-                disabled={!newGoal.title || !newGoal.target || !newGoal.startDate || !newGoal.endDate}
+                disabled={!newGoal.name || !newGoal.target || !newGoal.startDate || !newGoal.endDate}
               >
                 <Text style={styles.submitButtonText}>Add Goal</Text>
               </TouchableOpacity>
@@ -1163,87 +1126,49 @@ const CalendarScreen = () => {
     );
   };
 
-  // Check for confetti when screen is focused and goals are loaded
-  useEffect(() => {
-    // Simple confetti trigger for completed goals
-    const completedGoalIds = goals.filter(goal => goal.current >= goal.target).map(g => g.id);
-    
-    console.log('🎯 Screen focus confetti check:', {
-      completedGoalIds,
-      currentCompletedSize: completedGoals.size,
-      shouldTrigger: completedGoalIds.length > 0 && completedGoals.size === 0
-    });
-    
-    if (completedGoalIds.length > 0 && completedGoals.size === 0) {
-      console.log('🎉 TRIGGERING WELCOME CONFETTI!');
-      setCompletedGoals(new Set(completedGoalIds));
-      setShowConfetti(true);
-      startConfettiAnimation();
-      
-      setTimeout(() => {
-        setShowConfetti(false);
-        console.log('🎉 Welcome confetti hidden');
-      }, 6000); // Show for 6 seconds to let animation complete
-    }
-  }, [goals, completedGoals.size]);
-
   // Update goal progress automatically when sessions change
   useEffect(() => {
     console.log('🔄 Session update effect triggered:', {
       sessionsLength: sessions?.length || 0,
-      completedGoalsSize: completedGoals.size,
       hasSessionData: !!sessions
     });
     
-    if (sessions && sessions.length > 0) {
-      console.log('🎯 Updating goal progress with', sessions.length, 'sessions');
+    // Check for completed goals and trigger confetti
+    if (goals && goals.length > 0) {
+      console.log('🎯 Checking for completed goals...');
       
-      const newlyCompletedGoals = new Set<string>();
-      const allCompletedGoals = new Set<string>();
+      const allCurrentlyCompletedGoalIds = goals
+        .filter(goal => goal.current >= goal.target)
+        .map(goal => goal.id);
       
-      setGoals(prevGoals => 
-        prevGoals.map(goal => {
-          const newProgress = GoalTrackingService.calculateGoalProgress(goal, sessions);
-          const isCompleted = newProgress >= goal.target;
-          const wasCompleted = completedGoals.has(goal.id);
-          
-          // Track all completed goals
-          if (isCompleted) {
-            allCompletedGoals.add(goal.id);
-          }
-          
-          // Track newly completed goals (not previously completed)
-          if (isCompleted && !wasCompleted) {
-            newlyCompletedGoals.add(goal.id);
-          }
-          
-          console.log(`🎯 Goal "${goal.title}": ${goal.current} → ${newProgress} (${Math.round(newProgress/goal.target*100)}%) ${isCompleted ? '✅' : ''}`);
-          
-          return {
-            ...goal,
-            current: newProgress
-          };
-        })
-      );
+      goals.forEach(goal => {
+        const isCompleted = goal.current >= goal.target;
+        console.log(`🎯 Goal "${goal.name}": ${goal.current}/${goal.target} (${Math.round(goal.current/goal.target*100)}%) ${isCompleted ? '✅' : ''}`);
+      });
       
-      // Only trigger confetti for newly completed goals (not welcome confetti)
-      if (newlyCompletedGoals.size > 0) {
-        console.log(`🎉 TRIGGERING CONFETTI for newly completed goals:`, Array.from(newlyCompletedGoals));
-        setCompletedGoals(prev => new Set([...prev, ...newlyCompletedGoals]));
-        setShowConfetti(true);
-        startConfettiAnimation();
+      // Update completed goals using functional update to avoid dependency issues
+      setCompletedGoals(prevCompleted => {
+        const newlyCompletedGoals = allCurrentlyCompletedGoalIds.filter(id => !prevCompleted.has(id));
         
-        setTimeout(() => {
-          setShowConfetti(false);
-          console.log('🎉 New completion confetti hidden');
-        }, 6000); // Show for 6 seconds
-      } else if (allCompletedGoals.size > 0) {
-        // Update completed goals set without confetti (welcome confetti handled separately)
-        console.log('📝 Updating completed goals without confetti');
-        setCompletedGoals(prev => new Set([...prev, ...allCompletedGoals]));
-      }
+        // Only trigger confetti for newly completed goals
+        if (newlyCompletedGoals.length > 0) {
+          console.log(`🎉 TRIGGERING CONFETTI for newly completed goals:`, newlyCompletedGoals);
+          setShowConfetti(true);
+          startConfettiAnimation();
+          
+          setTimeout(() => {
+            setShowConfetti(false);
+            console.log('🎉 New completion confetti hidden');
+          }, 6000); // Show for 6 seconds
+        } else if (allCurrentlyCompletedGoalIds.length > 0 && prevCompleted.size === 0) {
+          // First time loading completed goals (no confetti)
+          console.log('📝 Updating completed goals without confetti');
+        }
+        
+        return new Set(allCurrentlyCompletedGoalIds);
+      });
     }
-  }, [sessions]);
+  }, [goals]); // Removed completedGoals from dependencies to prevent infinite loop
 
   // Refresh data when screen loads
   useEffect(() => {
@@ -1255,10 +1180,9 @@ const CalendarScreen = () => {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.screenTitle}>Calendar</Text>
-          <TouchableOpacity style={styles.headerButton}>
-            <MaterialCommunityIcons name="calendar-plus" size={24} color="#FFF" />
-          </TouchableOpacity>
+          <View style={{ alignItems: 'center', width: '100%' }}>
+            <Text style={[styles.screenTitle, { textAlign: 'center', width: '100%' }]}>Calendar</Text>
+          </View>
         </View>
         
         <View style={styles.calendarContainer}>
@@ -1426,14 +1350,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: '#FFFFFF',
-  },
-  headerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#192337',
-    alignItems: 'center',
-    justifyContent: 'center'
   },
   calendarContainer: {
     marginHorizontal: 16,

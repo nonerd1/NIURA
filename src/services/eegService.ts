@@ -1,6 +1,7 @@
 import { apiClient } from './apiClient';
 import { apiConfig } from '../config/amplify';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AggregateRange } from '../types/eeg';
 
 // EEG Data Types
 export interface Goal {
@@ -99,15 +100,14 @@ export interface EEGAggregateDataPoint {
 }
 
 export interface EEGAggregateResponse {
-  range: 'hourly' | 'daily' | 'weekly' | 'monthly';
+  range: AggregateRange;
   data: EEGAggregateDataPoint[];
   total_samples: number;
   start_date: string;
   end_date: string;
   timezone?: string;
+  labels?: string[];
 }
-
-export type AggregateRange = 'hourly' | 'daily' | 'weekly' | 'monthly';
 
 // Latest EEG Types
 export interface LatestEEGData {
@@ -320,6 +320,12 @@ class EEGService {
               weekDate.setHours(12, 0, 0, 0);
               timestamp = weekDate.toISOString();
               break;
+            case 'yearly':
+              // For yearly, generate timestamps for each month of the current year
+              const year = now.getFullYear();
+              const monthDate = new Date(year, index, 1, 12, 0, 0, 0);
+              timestamp = monthDate.toISOString();
+              break;
               
             default:
               // Fallback: use current time with index offset
@@ -346,7 +352,8 @@ class EEGService {
           total_samples: transformedData.length,
           start_date: transformedData[0]?.timestamp || now.toISOString(),
           end_date: transformedData[transformedData.length - 1]?.timestamp || now.toISOString(),
-          timezone: 'UTC'
+          timezone: 'UTC',
+          labels: backendData.labels
         };
         
         return aggregateResponse;
@@ -442,59 +449,32 @@ class EEGService {
       return null;
     }
 
-    try {
-      let invalidTimestampCount = 0;
-      const labels = aggregateData.data.map((point, index) => {
-        const date = new Date(point.timestamp);
-        
-        // Check if date is valid
-        if (isNaN(date.getTime())) {
-          invalidTimestampCount++;
-          // For invalid dates, just return the timestamp as-is
-          return point.timestamp;
-        }
-        
-        switch (aggregateData.range) {
-          case 'hourly':
-            // Return all labels - let frontend handle 4-hour filtering
-            const hour = date.getHours();
-            const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-            const ampm = hour >= 12 ? 'PM' : 'AM';
-            return `${hour12}${ampm}`;
-          case 'daily':
-            return date.toLocaleDateString('en-US', { 
-              weekday: 'short' 
-            });
-          case 'weekly':
-            return `Week ${Math.ceil(date.getDate() / 7)}`;
-          case 'monthly':
-            return date.toLocaleDateString('en-US', { 
-              month: 'short' 
-            });
-          default:
-            return point.timestamp;
-        }
-      });
-
-      if (invalidTimestampCount > 0) {
-        console.log(`Handled ${invalidTimestampCount} pre-formatted timestamps for ${aggregateData.range} range`);
-      }
-
-      const focusData = aggregateData.data.map(point => point.focus_avg);
-      const stressData = aggregateData.data.map(point => point.stress_avg);
-
-      const result = {
-        labels,
-        focusData,
-        stressData,
-        range: aggregateData.range,
-        totalSamples: aggregateData.total_samples
-      };
-
-      return result;
-    } catch (error) {
-      return null;
+    let labels;
+    if (Array.isArray(aggregateData.labels)) {
+      labels = aggregateData.labels;
+    } else {
+      // fallback label generation (should rarely be used)
+      labels = aggregateData.data.map((point, index) => point.timestamp);
     }
+
+    let focusData = aggregateData.data.map(point => point.focus_avg);
+    let stressData = aggregateData.data.map(point => point.stress_avg);
+
+    // Only slice for yearly
+    if (aggregateData.range === 'yearly' && labels.length > 6) {
+      labels = labels.slice(-6);
+      focusData = focusData.slice(-6);
+      stressData = stressData.slice(-6);
+    }
+    // For all other ranges, use as-is
+
+    return {
+      labels,
+      focusData,
+      stressData,
+      range: aggregateData.range,
+      totalSamples: aggregateData.total_samples
+    };
   }
 
   // Helper method to format latest EEG data for display
@@ -603,28 +583,55 @@ class EEGService {
       throw new Error('No readings to upload');
     }
 
-    const startTime = readings[0].timestamp;
-    const endTime = readings[readings.length - 1].timestamp;
-    const durationSeconds = Math.floor(
-      (new Date(endTime).getTime() - new Date(startTime).getTime()) / 1000
-    );
+    console.log(`📊 Uploading ${readings.length} EEG readings for session ${sessionId}...`);
 
-    const uploadData: BulkEEGUploadRequest = {
-      readings,
-      session_metadata: {
-        session_id: sessionId || `session_${Date.now()}`,
-        start_time: startTime,
-        end_time: endTime,
-        session_type: sessionType,
-        duration_seconds: durationSeconds
-      },
-      device_info: {
-        device_id: 'mobile_app',
-        device_type: 'react_native'
-      }
+    // Transform EEG readings to the format expected by backend
+    const records = readings.map((reading, index) => ({
+      sample_index: index + 1,
+      timestamp: new Date(reading.timestamp).toISOString().replace('Z', ''), // Remove Z suffix
+      eeg: [
+        // Convert focus/stress values to mock 8-channel EEG data
+        // This is a simplified transformation - in real app, you'd have actual EEG channels
+        reading.focus_value * 1000,     // Channel 1 - scaled focus
+        reading.stress_value * -1000,   // Channel 2 - scaled stress (inverted)
+        reading.focus_value * 800,      // Channel 3 - focus variant
+        reading.stress_value * -800,    // Channel 4 - stress variant
+        reading.focus_value * 600,      // Channel 5 - focus variant
+        reading.stress_value * -600,    // Channel 6 - stress variant
+        reading.focus_value * 400,      // Channel 7 - focus variant
+        reading.stress_value * -400     // Channel 8 - stress variant
+      ]
+    }));
+
+    // Calculate session duration
+    const startTime = new Date(readings[0].timestamp);
+    const endTime = new Date(readings[readings.length - 1].timestamp);
+    const durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+
+    // Format data as expected by backend
+    const uploadData = {
+      records: records,
+      duration: Math.max(4, Math.floor(durationSeconds / readings.length)) // Use average interval, min 4 seconds
     };
 
-    return this.uploadBulkEEGData(uploadData);
+    try {
+      const response = await apiClient.post<any>(
+        apiConfig.endpoints.bulkEegUpload,
+        uploadData
+      );
+
+      console.log(`✅ EEG session data uploaded successfully: ${response.data.message}`);
+      
+      return {
+        success: true,
+        message: response.data.message || 'EEG data uploaded successfully',
+        uploaded_count: response.data.records_count || readings.length,
+        session_id: sessionId
+      };
+    } catch (error: any) {
+      console.error('❌ Failed to upload EEG session data:', error);
+      throw new Error(error.message || 'Failed to upload EEG data');
+    }
   }
 
   // Helper method to format time for display
@@ -735,6 +742,7 @@ class EEGService {
 
       console.log(`⬆️ Uploading ${dataToUpload.length} EEG samples to backend...`);
 
+      // Format data as expected by backend (records field)
       const batchData = {
         records: dataToUpload,
         duration: 4 // Default 4-second processing window
@@ -844,6 +852,17 @@ class EEGService {
         eegRecordsCount: 0,
         error: error.message
       };
+    }
+  }
+
+  // Get Time of Day Pattern - GET /api/eeg/time-of-day-pattern
+  async getTimeOfDayPattern(): Promise<{ labels: string[]; focus: number[]; stress: number[] }> {
+    try {
+      const response = await apiClient.get<any>('/api/eeg/time-of-day-pattern');
+      // The backend returns { labels: [...], focus: [...], stress: [...] }
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to fetch time-of-day pattern');
     }
   }
 }

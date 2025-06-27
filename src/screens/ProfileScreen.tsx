@@ -4,17 +4,25 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../theme/colors';
-import { useDemo } from '../context/DemoContext';
 import { authService, User } from '../services/auth';
 import { RootStackParamList } from '../types/navigation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+// Interface for profile statistics
+interface ProfileStats {
+  sessions: number;
+  focus_time: string;
+  avg_score: string;
+}
+
 const ProfileScreen = () => {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
-  const { demoMode, startDemo } = useDemo();
   const [user, setUser] = useState<User | null>(null);
+  const [profileStats, setProfileStats] = useState<ProfileStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isStatsLoading, setIsStatsLoading] = useState(true);
 
   useEffect(() => {
     loadUserData();
@@ -22,19 +30,42 @@ const ProfileScreen = () => {
 
   const loadUserData = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
+      // Debug: Check if we have auth token, if not, set it
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        console.log('⚠️ No auth token found, setting debug token...');
+        const debugToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzUwODkxMDA2fQ.e9H-FmCCs7EBr50LnBwWNIIeefZYJxG9Z7MHOE4ag8U';
+        await AsyncStorage.setItem('authToken', debugToken);
+        console.log('✅ Debug token set');
+      }
+      
+      // Load user profile and stats in parallel
+      const [currentUser, userProfile, userStats] = await Promise.all([
+        authService.getCurrentUser(),
+        authService.getUserProfile().catch(error => {
+          console.warn('Failed to fetch user profile:', error);
+          return null;
+        }),
+        authService.getUserProfileStats().catch(error => {
+          console.warn('Failed to fetch user stats:', error);
+          return null;
+        })
+      ]);
+
       setUser(currentUser);
+      setProfileStats(userStats);
+      
+      console.log('✅ Profile data loaded:', {
+        user: currentUser,
+        profile: userProfile,
+        stats: userStats
+      });
     } catch (error) {
       console.error('Error loading user data:', error);
     } finally {
       setIsLoading(false);
+      setIsStatsLoading(false);
     }
-  };
-
-  const handleStartDemo = () => {
-    console.log('Starting demo mode from profile screen');
-    startDemo();
-    navigation.goBack();
   };
 
   const handleEditProfile = () => {
@@ -63,8 +94,8 @@ const ProfileScreen = () => {
     );
   };
 
-  const displayName = user ? `${user.firstName} ${user.lastName}` : 'Pari Patel';
-  const displayEmail = user?.email || 'pari@niura.io';
+  const displayName = user ? `${user.firstName} ${user.lastName}` : 'User';
+  const displayEmail = user?.email || 'testica@example.com';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -83,29 +114,14 @@ const ProfileScreen = () => {
         <ScrollView style={styles.content}>
           {/* Profile Header */}
           <View style={styles.profileHeader}>
-            <Pressable 
-              onPress={handleStartDemo} 
-              style={({ pressed }) => [
-                styles.profileImageContainer,
-                !demoMode ? styles.profileImageOuterCircle : null,
-                pressed && styles.profilePressed,
-              ]}
-            >
+            <View style={styles.profileImageContainer}>
               <MaterialCommunityIcons 
                 name="account-circle" 
                 size={100} 
                 color={colors.primary.main} 
                 style={styles.profileIcon}
               />
-              {!demoMode && (
-                <View style={styles.demoIndicator}>
-                  <Text style={styles.demoIndicatorText}>DEMO</Text>
-                </View>
-              )}
-            </Pressable>
-            {!demoMode && (
-              <Text style={styles.tapToActivate}>Tap to activate demo mode</Text>
-            )}
+            </View>
             {isLoading ? (
               <ActivityIndicator size="large" color={colors.primary.main} style={{ marginTop: 16 }} />
             ) : (
@@ -119,18 +135,36 @@ const ProfileScreen = () => {
           {/* Stats */}
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>24</Text>
-              <Text style={styles.statLabel}>Sessions</Text>
+              {isStatsLoading ? (
+                <ActivityIndicator size="small" color={colors.primary.main} />
+              ) : (
+                <>
+                  <Text style={styles.statValue}>{profileStats?.sessions || 0}</Text>
+                  <Text style={styles.statLabel}>Sessions</Text>
+                </>
+              )}
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>12h</Text>
-              <Text style={styles.statLabel}>Focus Time</Text>
+              {isStatsLoading ? (
+                <ActivityIndicator size="small" color={colors.primary.main} />
+              ) : (
+                <>
+                  <Text style={styles.statValue}>{profileStats?.focus_time || '0m'}</Text>
+                  <Text style={styles.statLabel}>Focus Time</Text>
+                </>
+              )}
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>85%</Text>
-              <Text style={styles.statLabel}>Avg. Score</Text>
+              {isStatsLoading ? (
+                <ActivityIndicator size="small" color={colors.primary.main} />
+              ) : (
+                <>
+                  <Text style={styles.statValue}>{profileStats?.avg_score || '0%'}</Text>
+                  <Text style={styles.statLabel}>Avg. Score</Text>
+                </>
+              )}
             </View>
           </View>
 
@@ -272,43 +306,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(66, 135, 245, 0.1)',
     overflow: 'hidden',
   },
-  profileImageOuterCircle: {
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 57,
-    padding: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   profileIcon: {
     textAlign: 'center',
     textAlignVertical: 'center',
     margin: 0,
     padding: 0,
-  },
-  demoIndicator: {
-    position: 'absolute',
-    bottom: -5,
-    right: -5,
-    backgroundColor: '#FF6B6B',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  demoIndicatorText: {
-    color: 'white',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  profilePressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.98 }],
-  },
-  tapToActivate: {
-    color: colors.text.secondary,
-    fontSize: 12,
-    marginTop: 8,
-    textAlign: 'center',
   },
 });
 

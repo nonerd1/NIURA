@@ -4,7 +4,7 @@ export type RootTabParamList = {
   Home: undefined;
   Insights: undefined;
   DeepWork: undefined;
-  Calendar: undefined;
+  Calendar: { scrollTo?: string } | undefined;
   Options: undefined;
 };
 
