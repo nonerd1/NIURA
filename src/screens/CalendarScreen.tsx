@@ -25,6 +25,7 @@ import { useSessionHistory } from '../hooks/useSessionHistory';
 import { sessionService } from '../services/sessionService';
 import { useGoals } from '../hooks/useGoals';
 import { Goal } from '../services/goalsService';
+import { useTheme } from '../context/ThemeContext';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -144,6 +145,8 @@ class GoalTrackingService {
 }
 
 const CalendarScreen = () => {
+  const { colors, getScaledFontSize, isDarkMode } = useTheme();
+  
   const { 
     events, 
     todaysEvents,
@@ -205,12 +208,13 @@ const CalendarScreen = () => {
 
   const getMarkedDates = () => {
     const markedDates: any = {};
+    const isLightMode = !isDarkMode;
     
     // First, add event markers
     events.forEach(event => {
       const eventDate = event.date;
       if (eventDate && !markedDates[eventDate]) {
-        markedDates[eventDate] = { marked: true, dotColor: '#4287f5' };
+        markedDates[eventDate] = { marked: true, dotColor: colors.primary.main };
       }
     });
     
@@ -218,41 +222,35 @@ const CalendarScreen = () => {
     Object.entries(focusStressData).forEach(([date, data]) => {
       const focusLevel = data.focus;
       const stressLevel = data.stress;
-      
-      // Calculate a heat map score: higher focus and lower stress = better (green)
-      // Lower focus and higher stress = worse (red)
-      const focusScore = Math.min(Math.max(focusLevel, 0), 5); // Clamp between 0-5
-      const stressScore = Math.min(Math.max(stressLevel, 0), 5); // Clamp between 0-5
-      
-      // Create a combined score: focus is positive, stress is negative
+      const focusScore = Math.min(Math.max(focusLevel, 0), 5);
+      const stressScore = Math.min(Math.max(stressLevel, 0), 5);
       const combinedScore = focusScore - stressScore;
-      
-      let textColor = '#FFFFFF';
-      let backgroundColor = 'transparent';
-      
+      let backgroundColor = colors.background.card;
+      let textColor = colors.text.primary;
+      let isSpecialDay = false;
       // Create a heat map with 5 color levels
       if (combinedScore >= 2) {
-        // Very good day: high focus, low stress
         backgroundColor = '#27ae60'; // Bright green
         textColor = '#FFFFFF';
+        isSpecialDay = true;
       } else if (combinedScore >= 1) {
-        // Good day: decent focus, moderate stress
         backgroundColor = '#2ecc71'; // Green
         textColor = '#FFFFFF';
+        isSpecialDay = true;
       } else if (combinedScore >= -0.5) {
-        // Neutral day: balanced
         backgroundColor = '#f39c12'; // Orange
         textColor = '#FFFFFF';
+        isSpecialDay = true;
       } else if (combinedScore >= -1.5) {
-        // Bad day: low focus, high stress
         backgroundColor = '#e74c3c'; // Red
         textColor = '#FFFFFF';
-      } else {
-        // Very bad day: very low focus, very high stress
+        isSpecialDay = true;
+      } else if (combinedScore < -1.5) {
         backgroundColor = '#c0392b'; // Dark red
         textColor = '#FFFFFF';
+        isSpecialDay = true;
       }
-      
+      // For normal days, use theme background and text
       markedDates[date] = {
         ...markedDates[date],
         customStyles: {
@@ -271,19 +269,18 @@ const CalendarScreen = () => {
           }
         }
       };
-      
       // Handle selected date
       if (date === selectedDate) {
         markedDates[date] = {
           ...markedDates[date],
           selected: true,
-          selectedColor: 'transparent', // Don't override our custom color
+          selectedColor: 'transparent',
           customStyles: {
             ...markedDates[date]?.customStyles,
             container: {
               ...markedDates[date]?.customStyles?.container,
               borderWidth: 3,
-              borderColor: '#4287f5',
+              borderColor: colors.primary.main,
             },
             text: {
               ...markedDates[date]?.customStyles?.text,
@@ -293,7 +290,6 @@ const CalendarScreen = () => {
         };
       }
     });
-    
     return markedDates;
   };
   
@@ -1176,6 +1172,587 @@ const CalendarScreen = () => {
     refreshSessions();
   }, []);
 
+  // Move styles inside component to access dynamic theme colors
+  const styles = StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background.dark,
+      paddingTop: 0,
+    },
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.dark,
+    },
+    header: {
+      paddingTop: 10,
+      paddingHorizontal: 20,
+      paddingBottom: 5,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center'
+    },
+    screenTitle: {
+      fontSize: getScaledFontSize(28),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    calendarContainer: {
+      marginHorizontal: 16,
+      marginTop: 5,
+      marginBottom: 10,
+      borderRadius: 16,
+      overflow: 'hidden',
+      backgroundColor: colors.background.card,
+    },
+    calendar: {
+      borderRadius: 16,
+    },
+    calendarLegend: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderTopWidth: 1,
+      borderTopColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+    },
+    legendItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginRight: 10,
+      marginBottom: 4,
+    },
+    legendColor: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      marginRight: 5,
+    },
+    legendText: {
+      fontSize: getScaledFontSize(10),
+      color: colors.text.secondary,
+    },
+    section: {
+      marginHorizontal: 16,
+      marginBottom: 16,
+      backgroundColor: colors.background.card,
+      borderRadius: 16,
+      padding: 12,
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    sectionTitle: {
+      fontSize: getScaledFontSize(18),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    addButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.primary.main,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    addButtonText: {
+      fontSize: getScaledFontSize(14),
+      fontWeight: '600',
+      color: '#FFFFFF',
+      marginLeft: 4,
+    },
+    emptyStateContainer: {
+      alignItems: 'center',
+      padding: 24,
+    },
+    emptyState: {
+      fontSize: getScaledFontSize(16),
+      color: colors.text.primary,
+      marginTop: 12,
+      textAlign: 'center',
+    },
+    emptyStateSubtext: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    eventsListContainer: {
+      marginTop: 8,
+    },
+    eventItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      marginBottom: 8,
+      backgroundColor: colors.background.dark,
+      borderRadius: 12,
+    },
+    eventIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.primary.main,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 12,
+    },
+    eventContent: {
+      flex: 1,
+    },
+    eventTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 4,
+    },
+    eventTime: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+    },
+    eventActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    deleteButton: {
+      padding: 8,
+    },
+    eventDetails: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    eventDuration: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginRight: 12,
+    },
+    eventDescription: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginTop: 4,
+    },
+    eventLocation: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 4,
+    },
+    eventLocationText: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginLeft: 4,
+    },
+    reminderBadge: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.primary.main,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 8,
+    },
+    deleteEventButton: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.error,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 8,
+    },
+    goalsListContainer: {
+      marginTop: 8,
+    },
+    goalItem: {
+      padding: 12,
+      marginBottom: 8,
+      backgroundColor: colors.background.dark,
+      borderRadius: 12,
+    },
+    goalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    goalIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.primary.main,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 12,
+    },
+    goalContent: {
+      flex: 1,
+    },
+    goalTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 4,
+    },
+    goalProgress: {
+      marginTop: 8,
+    },
+    goalProgressText: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+    },
+    goalProgressBar: {
+      height: 6,
+      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+      borderRadius: 3,
+      overflow: 'hidden',
+    },
+    goalProgressFill: {
+      height: '100%',
+      backgroundColor: colors.primary.main,
+    },
+    goalProgressPercentage: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+      marginTop: 4,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'flex-end',
+    },
+    modalContainer: {
+      backgroundColor: colors.background.card,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingTop: 20,
+      paddingHorizontal: 20,
+      paddingBottom: 30,
+      maxHeight: '90%',
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 20,
+    },
+    modalTitle: {
+      fontSize: getScaledFontSize(20),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    closeButton: {
+      padding: 8,
+    },
+    modalContent: {
+      flex: 1,
+    },
+    formGroup: {
+      marginBottom: 16,
+    },
+    formLabel: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 8,
+    },
+    formInput: {
+      backgroundColor: colors.background.dark,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: getScaledFontSize(16),
+      color: colors.text.primary,
+      borderWidth: 1,
+      borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+    },
+    formTextArea: {
+      height: 80,
+      textAlignVertical: 'top',
+    },
+    typeButtonsContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginTop: 8,
+    },
+    typeButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      marginHorizontal: 4,
+      marginBottom: 8,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.primary.main,
+      backgroundColor: 'transparent',
+    },
+    typeButtonActive: {
+      backgroundColor: colors.primary.main,
+    },
+    typeButtonText: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.primary,
+      marginLeft: 4,
+    },
+    typeButtonTextActive: {
+      fontWeight: 'bold',
+      color: '#FFFFFF',
+    },
+    reminderContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    reminderToggle: {
+      padding: 4,
+    },
+    reminderToggleTrack: {
+      width: 50,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+      justifyContent: 'center',
+    },
+    reminderToggleTrackActive: {
+      backgroundColor: colors.primary.main,
+    },
+    reminderToggleThumb: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: '#FFFFFF',
+      marginLeft: 3,
+    },
+    reminderToggleThumbActive: {
+      marginLeft: 25,
+    },
+    reminderHelp: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+    },
+    submitButton: {
+      backgroundColor: colors.primary.main,
+      borderRadius: 8,
+      padding: 16,
+      alignItems: 'center',
+      marginVertical: 20,
+    },
+    submitButtonDisabled: {
+      backgroundColor: colors.text.secondary,
+    },
+    submitButtonText: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+      color: '#FFFFFF',
+    },
+    scrollContainer: {
+      flex: 1,
+    },
+    contentContainer: {
+      paddingHorizontal: 16,
+      paddingBottom: 100,
+    },
+    errorContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+      backgroundColor: colors.background.card,
+      borderRadius: 8,
+      marginBottom: 16,
+    },
+    errorText: {
+      color: colors.error,
+      fontSize: getScaledFontSize(16),
+      marginLeft: 8,
+    },
+    retryButton: {
+      backgroundColor: colors.primary.main,
+      borderRadius: 8,
+      padding: 12,
+      alignItems: 'center',
+    },
+    retryButtonText: {
+      color: '#FFFFFF',
+      fontSize: getScaledFontSize(16),
+      fontWeight: 'bold',
+    },
+    loadingContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16,
+    },
+    loadingText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(16),
+      marginLeft: 8,
+    },
+    goalItemCompleted: {
+      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+    },
+    goalIconCompleted: {
+      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+    },
+    goalTitleCompleted: {
+      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+    },
+    completedBadge: {
+      color: colors.primary.main,
+      fontSize: getScaledFontSize(12),
+      fontWeight: 'bold',
+    },
+    goalProgressPercentageCompleted: {
+      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+    },
+    goalProgressFillCompleted: {
+      backgroundColor: '#27ae60',
+    },
+    overAchievedText: {
+      color: '#F39C12',
+      fontSize: getScaledFontSize(12),
+      fontWeight: 'bold',
+    },
+    confettiContainer: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: '100%',
+      width: '100%',
+      justifyContent: 'flex-start',
+      alignItems: 'center',
+      zIndex: 1000,
+    },
+    confettiPiece: {
+      position: 'absolute',
+      top: -50,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.3,
+      shadowRadius: 2,
+      elevation: 3,
+    },
+    confettiMessage: {
+      position: 'absolute',
+      top: 120,
+      left: 20,
+      right: 20,
+      backgroundColor: `${colors.primary.main}F0`,
+      borderRadius: 20,
+      padding: 24,
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 6,
+      },
+      shadowOpacity: 0.4,
+      shadowRadius: 12,
+      elevation: 10,
+      borderWidth: 2,
+      borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+    },
+    confettiMessageText: {
+      fontSize: getScaledFontSize(20),
+      fontWeight: 'bold',
+      color: '#FFFFFF',
+      marginBottom: 6,
+    },
+    confettiSubText: {
+      fontSize: getScaledFontSize(16),
+      color: '#FFFFFF',
+      opacity: 0.9,
+    },
+    goalHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+    },
+    goalDeleteButton: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: `${colors.error}33`,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 12,
+    },
+    goalProgressHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    goalTrackingInfo: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+    },
+    goalDateRange: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+    },
+    focusStressContainer: {
+      paddingHorizontal: 20,
+      flexDirection: 'row',
+      justifyContent: 'space-around',
+      marginBottom: 20,
+    },
+    metricContainer: {
+      alignItems: 'center',
+      height: 120,
+      justifyContent: 'flex-end',
+    },
+    metricLabel: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginBottom: 8,
+    },
+    metricValue: {
+      fontSize: getScaledFontSize(18),
+      fontWeight: 'bold',
+      marginBottom: 8,
+    },
+    metricBar: {
+      width: 40,
+      borderTopLeftRadius: 4,
+      borderTopRightRadius: 4,
+    },
+    dayInsight: {
+      position: 'absolute',
+      bottom: -20,
+      left: 20,
+      right: 20,
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 12,
+    },
+    insightText: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.primary,
+      textAlign: 'center',
+    },
+    formContainer: {
+      paddingHorizontal: 20,
+    },
+    formRow: {
+      flexDirection: 'row',
+      marginBottom: 16,
+    },
+    modalSection: {
+      paddingHorizontal: 20,
+      marginTop: 20,
+    },
+    typeButtonsScrollContainer: {
+      maxHeight: 50,
+    },
+  });
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -1190,16 +1767,16 @@ const CalendarScreen = () => {
             style={styles.calendar}
             theme={{
               backgroundColor: 'transparent',
-              calendarBackground: '#192337',
-              textSectionTitleColor: '#FFFFFF',
-              selectedDayBackgroundColor: '#4287f5',
+              calendarBackground: colors.background.card,
+              textSectionTitleColor: colors.text.primary,
+              selectedDayBackgroundColor: colors.primary.main,
               selectedDayTextColor: '#FFFFFF',
-              todayTextColor: '#4287f5',
-              dayTextColor: '#FFFFFF',
-              textDisabledColor: '#7a889e',
-              dotColor: '#4287f5',
-              monthTextColor: '#FFFFFF',
-              arrowColor: '#64B5F6',
+              todayTextColor: colors.primary.main,
+              dayTextColor: colors.text.primary,
+              textDisabledColor: colors.text.secondary,
+              dotColor: colors.primary.main,
+              monthTextColor: colors.text.primary,
+              arrowColor: colors.primary.main,
               textMonthFontWeight: 'bold',
               textDayFontSize: 13,
               textMonthFontSize: 15,
@@ -1219,18 +1796,18 @@ const CalendarScreen = () => {
             enableSwipeMonths={true}
           />
           
-          <View style={styles.calendarLegend}>
+          <View style={[styles.calendarLegend, { backgroundColor: colors.background.card }]}>
             <View style={styles.legendItem}>
               <View style={[styles.legendColor, { backgroundColor: '#27ae60' }]} />
-              <Text style={styles.legendText}>High focus, low stress</Text>
+              <Text style={[styles.legendText, { color: colors.text.secondary }]}>High focus, low stress</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendColor, { backgroundColor: '#f39c12' }]} />
-              <Text style={styles.legendText}>Balanced</Text>
+              <Text style={[styles.legendText, { color: colors.text.secondary }]}>Balanced</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendColor, { backgroundColor: '#e74c3c' }]} />
-              <Text style={styles.legendText}>High stress, low focus</Text>
+              <Text style={[styles.legendText, { color: colors.text.secondary }]}>High stress, low focus</Text>
             </View>
           </View>
         </View>
@@ -1243,13 +1820,13 @@ const CalendarScreen = () => {
             <RefreshControl
               refreshing={eventsLoading}
               onRefresh={refreshEvents}
-              tintColor="#4287f5"
+              tintColor={colors.primary.main}
             />
           }
         >
           {eventsError && (
             <View style={styles.errorContainer}>
-              <MaterialCommunityIcons name="alert-circle" size={24} color="#FF6B6B" />
+              <MaterialCommunityIcons name="alert-circle" size={24} color={colors.error} />
               <Text style={styles.errorText}>{eventsError}</Text>
               <TouchableOpacity style={styles.retryButton} onPress={refreshEvents}>
                 <Text style={styles.retryButtonText}>Retry</Text>
@@ -1275,12 +1852,12 @@ const CalendarScreen = () => {
             
             {eventsLoading && todaysEvents.length === 0 ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#4287f5" />
+                <ActivityIndicator size="large" color={colors.primary.main} />
                 <Text style={styles.loadingText}>Loading events...</Text>
               </View>
             ) : todaysEvents.length === 0 ? (
               <View style={styles.emptyStateContainer}>
-                <MaterialCommunityIcons name="calendar-blank" size={48} color="#7a889e" />
+                <MaterialCommunityIcons name="calendar-blank" size={48} color={colors.text.secondary} />
                 <Text style={styles.emptyState}>No events scheduled for today.</Text>
                 <Text style={styles.emptyStateSubtext}>
                   Time to dodge the boss? Schedule a mindful break!
@@ -1327,574 +1904,5 @@ const CalendarScreen = () => {
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#0E1624',
-    paddingTop: 0,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#0E1624',
-  },
-  header: {
-    paddingTop: 10,
-    paddingHorizontal: 20,
-    paddingBottom: 5,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  screenTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  calendarContainer: {
-    marginHorizontal: 16,
-    marginTop: 5,
-    marginBottom: 10,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#192337',
-  },
-  calendar: {
-    borderRadius: 16,
-  },
-  calendarLegend: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#313e5c',
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 10,
-    marginBottom: 4,
-  },
-  legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 5,
-  },
-  legendText: {
-    fontSize: 10,
-    color: '#7a889e',
-  },
-  section: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: '#192337',
-    borderRadius: 16,
-    padding: 12,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 8,
-    backgroundColor: '#131d30',
-    borderRadius: 16,
-  },
-  addButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    marginLeft: 4,
-  },
-  emptyStateContainer: {
-    alignItems: 'center',
-    paddingVertical: 24,
-  },
-  emptyState: {
-    color: '#7a889e',
-    fontSize: 16,
-    marginVertical: 8,
-    textAlign: 'center',
-  },
-  emptyStateSubtext: {
-    color: '#7a889e',
-    fontSize: 14,
-    fontStyle: 'italic',
-    textAlign: 'center',
-  },
-  eventsListContainer: {
-    paddingTop: 8,
-  },
-  eventItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#131d30',
-    borderRadius: 12,
-    marginBottom: 8,
-    padding: 12,
-  },
-  eventIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#4287f5',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  eventContent: {
-    flex: 1,
-  },
-  eventTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  eventDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  eventTime: {
-    fontSize: 14,
-    color: '#7a889e',
-    marginRight: 12,
-  },
-  eventDuration: {
-    fontSize: 14,
-    color: '#7a889e',
-  },
-  eventDescription: {
-    fontSize: 14,
-    color: '#7a889e',
-    marginTop: 4,
-  },
-  eventLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  eventLocationText: {
-    fontSize: 14,
-    color: '#7a889e',
-    marginLeft: 4,
-  },
-  eventActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  reminderBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#4287f5',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  deleteEventButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#FF6B6B',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  goalsListContainer: {
-    paddingTop: 8,
-  },
-  goalItem: {
-    backgroundColor: '#131d30',
-    borderRadius: 12,
-    marginBottom: 12,
-    padding: 16,
-  },
-  goalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  goalHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  goalIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#4287f5',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  goalTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#FFFFFF',
-    flex: 1,
-  },
-  goalDeleteButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 107, 107, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 12,
-  },
-  goalProgress: {
-    marginBottom: 8,
-  },
-  goalProgressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  goalProgressText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  goalProgressPercentage: {
-    color: '#7a889e',
-  },
-  goalProgressBar: {
-    height: 8,
-    backgroundColor: '#313e5c',
-    borderRadius: 4,
-    marginBottom: 8,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  goalProgressFill: {
-    height: '100%',
-    backgroundColor: '#4287f5',
-    borderRadius: 4,
-    minWidth: 2, // Ensure there's always some visible progress
-  },
-  goalTrackingInfo: {
-    fontSize: 12,
-    color: '#7a889e',
-  },
-  goalDateRange: {
-    fontSize: 12,
-    color: '#7a889e',
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modalContent: {
-    backgroundColor: '#0E1624',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 20,
-    paddingBottom: 48,
-    maxHeight: '80%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#192337',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalSection: {
-    paddingHorizontal: 20,
-    marginTop: 20,
-  },
-  focusStressContainer: {
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
-  },
-  metricContainer: {
-    alignItems: 'center',
-    height: 120,
-    justifyContent: 'flex-end',
-  },
-  metricLabel: {
-    fontSize: 14,
-    color: '#7a889e',
-    marginBottom: 8,
-  },
-  metricValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  metricBar: {
-    width: 40,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
-  },
-  dayInsight: {
-    position: 'absolute',
-    bottom: -20,
-    left: 20,
-    right: 20,
-    backgroundColor: '#192337',
-    borderRadius: 12,
-    padding: 12,
-  },
-  insightText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  formContainer: {
-    paddingHorizontal: 20,
-  },
-  formGroup: {
-    marginBottom: 16,
-  },
-  formRow: {
-    flexDirection: 'row',
-    marginBottom: 16,
-  },
-  formLabel: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    marginBottom: 8,
-  },
-  formInput: {
-    backgroundColor: '#192337',
-    borderRadius: 8,
-    padding: 12,
-    color: '#FFFFFF',
-    fontSize: 16,
-  },
-  typeButtonsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 4,
-  },
-  typeButtonsScrollContainer: {
-    maxHeight: 50,
-  },
-  typeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginHorizontal: 4,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#4287f5',
-    backgroundColor: 'transparent',
-  },
-  typeButtonActive: {
-    backgroundColor: '#4287f5',
-  },
-  typeButtonText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    marginLeft: 4,
-  },
-  typeButtonTextActive: {
-    fontWeight: 'bold',
-  },
-  reminderContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  reminderToggle: {
-    padding: 4,
-  },
-  reminderToggleTrack: {
-    width: 50,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#313e5c',
-    justifyContent: 'center',
-  },
-  reminderToggleTrackActive: {
-    backgroundColor: '#4287f5',
-  },
-  reminderToggleThumb: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#FFFFFF',
-    marginLeft: 3,
-  },
-  reminderToggleThumbActive: {
-    marginLeft: 25,
-  },
-  reminderHelp: {
-    fontSize: 12,
-    color: '#7a889e',
-  },
-  submitButton: {
-    backgroundColor: '#4287f5',
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-    marginVertical: 20,
-  },
-  submitButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  scrollContainer: {
-    flex: 1,
-  },
-  contentContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 100,
-  },
-  formTextArea: {
-    height: 80,
-  },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#131d30',
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  errorText: {
-    color: '#FF6B6B',
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  retryButton: {
-    backgroundColor: '#4287f5',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  loadingText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  submitButtonDisabled: {
-    backgroundColor: '#7a889e',
-  },
-  goalItemCompleted: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  goalIconCompleted: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  goalTitleCompleted: {
-    color: 'rgba(255, 255, 255, 0.5)',
-  },
-  completedBadge: {
-    color: '#4287f5',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  goalProgressPercentageCompleted: {
-    color: 'rgba(255, 255, 255, 0.5)',
-  },
-  goalProgressFillCompleted: {
-    backgroundColor: '#27ae60',
-  },
-  overAchievedText: {
-    color: '#F39C12',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  confettiContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '100%',
-    width: '100%',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  confettiPiece: {
-    position: 'absolute',
-    top: -50,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 3,
-  },
-  confettiMessage: {
-    position: 'absolute',
-    top: 120,
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(66, 135, 245, 0.95)',
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 10,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  confettiMessageText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 6,
-  },
-  confettiSubText: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    opacity: 0.9,
-  },
-});
 
 export default CalendarScreen; 

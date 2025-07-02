@@ -10,7 +10,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart, BarChart } from 'react-native-chart-kit';
 import { useNavigation } from '@react-navigation/native';
-import { colors } from '../theme/colors';
+import { useTheme } from '../context/ThemeContext';
 import { eegService, Recommendation as BackendRecommendation, FocusTimeData } from '../services/eegService';
 import { AggregateRange } from '../types/eeg';
 
@@ -25,6 +25,7 @@ interface Recommendation {
 }
 
 const InsightsScreen = () => {
+  const { colors, getScaledFontSize, isDarkMode } = useTheme();
   const [selectedTimeRange, setSelectedTimeRange] = useState<AggregateRange>('weekly');
   const [selectedDataType, setSelectedDataType] = useState('focus');
   const [backendRecommendations, setBackendRecommendations] = useState<BackendRecommendation[]>([]);
@@ -36,6 +37,243 @@ const InsightsScreen = () => {
   const [timeOfDayPattern, setTimeOfDayPattern] = useState<{ labels: string[]; focus: number[]; stress: number[] } | null>(null);
   const [isLoadingTimeOfDay, setIsLoadingTimeOfDay] = useState<boolean>(true);
   const navigation = useNavigation();
+
+  // Move styles inside component to access dynamic theme colors
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.dark,
+    },
+    contentContainer: {
+      paddingBottom: 60,
+    },
+    header: {
+      paddingTop: 60,
+      paddingHorizontal: 20,
+      paddingBottom: 10,
+    },
+    screenTitle: {
+      fontSize: getScaledFontSize(28),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginBottom: 5,
+    },
+    section: {
+      padding: 20,
+      marginBottom: 10,
+    },
+    sectionTitle: {
+      fontSize: getScaledFontSize(22),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+      marginBottom: 5,
+    },
+    sectionSubtitle: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginBottom: 15,
+    },
+    timeRangeSelector: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      marginBottom: 20,
+    },
+    timeRangeButton: {
+      paddingHorizontal: 20,
+      paddingVertical: 8,
+      borderRadius: 20,
+      marginHorizontal: 5,
+    },
+    activeTimeRange: {
+      backgroundColor: colors.background.card,
+    },
+    timeRangeText: {
+      color: colors.text.secondary,
+      fontWeight: '500',
+      fontSize: getScaledFontSize(14),
+    },
+    activeTimeRangeText: {
+      color: colors.text.primary,
+    },
+    chartContainer: {
+      alignItems: 'center',
+      backgroundColor: colors.background.card,
+      borderRadius: 16,
+      padding: 15,
+    },
+    loadingContainer: {
+      height: 220,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    loadingText: {
+      color: colors.text.secondary,
+      fontSize: getScaledFontSize(16),
+    },
+    chart: {
+      borderRadius: 16,
+      marginVertical: 10,
+    },
+    chartCaption: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+      textAlign: 'center',
+      marginTop: 5,
+    },
+    analysisContainer: {
+      backgroundColor: colors.background.card,
+      borderRadius: 16,
+      padding: 15,
+    },
+    analysisTitle: {
+      fontSize: getScaledFontSize(18),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 15,
+    },
+    timeOfDayContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+      height: 120,
+      marginBottom: 20,
+    },
+    timeOfDayItem: {
+      alignItems: 'center',
+      width: '18%',
+    },
+    timeOfDayLabel: {
+      color: colors.text.secondary,
+      fontSize: getScaledFontSize(10),
+      marginBottom: 5,
+      textAlign: 'center',
+    },
+    metricsContainer: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      height: 90,
+      width: '100%',
+      justifyContent: 'space-between',
+    },
+    metricBar: {
+      width: '45%',
+      borderTopLeftRadius: 3,
+      borderTopRightRadius: 3,
+    },
+    metricLabelsContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      width: '100%',
+      marginTop: 5,
+    },
+    metricLabel: {
+      fontSize: getScaledFontSize(10),
+      fontWeight: '500',
+      color: colors.text.secondary,
+    },
+    insightCard: {
+      backgroundColor: colors.background.dark,
+      borderRadius: 12,
+      padding: 15,
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 10,
+    },
+    insightIcon: {
+      marginRight: 15,
+    },
+    insightText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(14),
+      flex: 1,
+      lineHeight: 20,
+    },
+    recommendationsContainer: {
+      marginTop: 10,
+    },
+    recommendationCard: {
+      backgroundColor: colors.background.card,
+      borderRadius: 16,
+      padding: 15,
+      marginBottom: 10,
+      flexDirection: 'row',
+    },
+    recommendationIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.background.dark,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 15,
+    },
+    recommendationContent: {
+      flex: 1,
+    },
+    recommendationTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 5,
+    },
+    recommendationDescription: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      lineHeight: 20,
+    },
+    peerComparisonContainer: {
+      backgroundColor: colors.background.card,
+      borderRadius: 16,
+      padding: 16,
+      marginHorizontal: 0,
+      alignItems: 'center',
+    },
+    comparisonLegend: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      marginBottom: 15,
+    },
+    legendItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginHorizontal: 10,
+    },
+    legendColor: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      marginRight: 5,
+    },
+    legendText: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+    },
+    analysisText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(14),
+      marginBottom: 5,
+    },
+  });
+
+  // Create dynamic chart config using theme colors
+  const chartConfig = {
+    backgroundGradientFrom: colors.background.card,
+    backgroundGradientTo: colors.background.card,
+    decimalPlaces: 1,
+    color: (opacity = 1) => isDarkMode 
+      ? `rgba(255, 255, 255, ${opacity})` 
+      : `rgba(0, 0, 0, ${opacity})`,
+    labelColor: (opacity = 1) => isDarkMode 
+      ? `rgba(255, 255, 255, ${opacity})` 
+      : `rgba(0, 0, 0, ${opacity})`,
+    style: {
+      borderRadius: 16
+    },
+    propsForDots: {
+      r: "6",
+      strokeWidth: "2",
+    }
+  };
 
   useEffect(() => {
     loadRecommendations();
@@ -292,21 +530,6 @@ const InsightsScreen = () => {
     }
   };
 
-  const chartConfig = {
-    backgroundGradientFrom: '#192337',
-    backgroundGradientTo: '#192337',
-    decimalPlaces: 1,
-    color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-    style: {
-      borderRadius: 16
-    },
-    propsForDots: {
-      r: "6",
-      strokeWidth: "2",
-    }
-  };
-
   // Update the renderRecommendationCard function with a type assertion
   const renderRecommendationCard = (recommendation: Recommendation) => (
     <View key={recommendation.id} style={styles.recommendationCard}>
@@ -314,7 +537,7 @@ const InsightsScreen = () => {
         <MaterialCommunityIcons 
           name={recommendation.icon as any} 
           size={24} 
-          color="#64B5F6" 
+          color={colors.primary.main} 
         />
       </View>
       <View style={styles.recommendationContent}>
@@ -397,7 +620,7 @@ const InsightsScreen = () => {
           <View style={styles.analysisContainer}>
             <Text style={styles.analysisTitle}>Time of Day Impact</Text>
             {isLoadingTimeOfDay ? (
-              <Text>Loading time-of-day analysis...</Text>
+              <Text style={styles.loadingText}>Loading time-of-day analysis...</Text>
             ) : timeOfDayPattern && timeOfDayPattern.labels && timeOfDayPattern.focus && timeOfDayPattern.stress ? (
               <BarChart
                 data={{
@@ -418,12 +641,16 @@ const InsightsScreen = () => {
                 yAxisLabel=""
                 yAxisSuffix=""
                 chartConfig={{
-                  backgroundColor: colors.background.dark,
-                  backgroundGradientFrom: colors.background.dark,
-                  backgroundGradientTo: colors.background.dark,
+                  backgroundColor: colors.background.card,
+                  backgroundGradientFrom: colors.background.card,
+                  backgroundGradientTo: colors.background.card,
                   decimalPlaces: 1,
-                  color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-                  labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                  color: (opacity = 1) => isDarkMode 
+                    ? `rgba(255, 255, 255, ${opacity})` 
+                    : `rgba(0, 0, 0, ${opacity})`,
+                  labelColor: (opacity = 1) => isDarkMode 
+                    ? `rgba(255, 255, 255, ${opacity})` 
+                    : `rgba(0, 0, 0, ${opacity})`,
                   style: {
                     borderRadius: 16,
                   },
@@ -444,7 +671,7 @@ const InsightsScreen = () => {
                 withVerticalLabels={true}
               />
             ) : (
-              <Text>No time-of-day analysis available.</Text>
+              <Text style={styles.loadingText}>No time-of-day analysis available.</Text>
             )}
           </View>
         </View>
@@ -503,12 +730,16 @@ const InsightsScreen = () => {
               yAxisLabel=""
               yAxisSuffix=""
               chartConfig={{
-                backgroundColor: colors.background.dark,
-                backgroundGradientFrom: colors.background.dark,
-                backgroundGradientTo: colors.background.dark,
+                backgroundColor: colors.background.card,
+                backgroundGradientFrom: colors.background.card,
+                backgroundGradientTo: colors.background.card,
                 decimalPlaces: 1,
-                color: (opacity = 1) => `rgba(255, 255, 255, ${opacity * 0.7})`,
-                labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                color: (opacity = 1) => isDarkMode 
+                  ? `rgba(255, 255, 255, ${opacity * 0.7})` 
+                  : `rgba(0, 0, 0, ${opacity * 0.7})`,
+                labelColor: (opacity = 1) => isDarkMode 
+                  ? `rgba(255, 255, 255, ${opacity})` 
+                  : `rgba(0, 0, 0, ${opacity})`,
                 style: {
                   borderRadius: 16,
                 },
@@ -534,7 +765,7 @@ const InsightsScreen = () => {
               <MaterialCommunityIcons 
                 name={"chart-line-variant" as any} 
                 size={24} 
-                color="#64B5F6" 
+                color={colors.info} 
                 style={styles.insightIcon} 
               />
               <Text style={styles.insightText}>
@@ -547,219 +778,5 @@ const InsightsScreen = () => {
     </ScrollView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0E1624',
-  },
-  contentContainer: {
-    paddingBottom: 60, // Increasing bottom padding to ensure content is well above the tab bar
-  },
-  header: {
-    paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 10,
-  },
-  screenTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 5,
-  },
-  section: {
-    padding: 20,
-    marginBottom: 10,
-  },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 5,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: '#7a889e',
-    marginBottom: 15,
-  },
-  timeRangeSelector: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  timeRangeButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginHorizontal: 5,
-  },
-  activeTimeRange: {
-    backgroundColor: '#192337',
-  },
-  timeRangeText: {
-    color: '#7a889e',
-    fontWeight: '500',
-  },
-  activeTimeRangeText: {
-    color: '#FFFFFF',
-  },
-  chartContainer: {
-    alignItems: 'center',
-    backgroundColor: '#192337',
-    borderRadius: 16,
-    padding: 15,
-  },
-  loadingContainer: {
-    height: 220,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#7a889e',
-    fontSize: 16,
-  },
-  chart: {
-    borderRadius: 16,
-    marginVertical: 10,
-  },
-  chartCaption: {
-    fontSize: 12,
-    color: '#7a889e',
-    textAlign: 'center',
-    marginTop: 5,
-  },
-  analysisContainer: {
-    backgroundColor: '#192337',
-    borderRadius: 16,
-    padding: 15,
-  },
-  analysisTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 15,
-  },
-  timeOfDayContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    height: 120,
-    marginBottom: 20,
-  },
-  timeOfDayItem: {
-    alignItems: 'center',
-    width: '18%',
-  },
-  timeOfDayLabel: {
-    color: '#7a889e',
-    fontSize: 10,
-    marginBottom: 5,
-    textAlign: 'center',
-  },
-  metricsContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    height: 90,
-    width: '100%',
-    justifyContent: 'space-between',
-  },
-  metricBar: {
-    width: '45%',
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-  },
-  metricLabelsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginTop: 5,
-  },
-  metricLabel: {
-    fontSize: 10,
-    fontWeight: '500',
-  },
-  insightCard: {
-    backgroundColor: '#131d30',
-    borderRadius: 12,
-    padding: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  insightIcon: {
-    marginRight: 15,
-  },
-  insightText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    flex: 1,
-    lineHeight: 20,
-  },
-  recommendationsContainer: {
-    marginTop: 10,
-  },
-  recommendationCard: {
-    backgroundColor: '#192337',
-    borderRadius: 16,
-    padding: 15,
-    marginBottom: 10,
-    flexDirection: 'row',
-  },
-  recommendationIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#131d30',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  recommendationContent: {
-    flex: 1,
-  },
-  recommendationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 5,
-  },
-  recommendationDescription: {
-    fontSize: 14,
-    color: '#7a889e',
-    lineHeight: 20,
-  },
-  peerComparisonContainer: {
-    backgroundColor: '#192337',
-    borderRadius: 16,
-    padding: 16,
-    marginHorizontal: 0,
-    alignItems: 'center',
-  },
-  comparisonLegend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 15,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 10,
-  },
-  legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 5,
-  },
-  legendText: {
-    fontSize: 12,
-    color: '#7a889e',
-  },
-  analysisText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    marginBottom: 5,
-  },
-});
 
 export default InsightsScreen; 

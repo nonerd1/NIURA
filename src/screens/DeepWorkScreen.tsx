@@ -26,29 +26,13 @@ import DeepWorkHistory from '../components/DeepWorkHistory';
 import SpeedometerMetrics from '../components/SpeedometerMetrics';
 import Svg, { Circle, LinearGradient as SvgLinearGradient, Defs, Stop } from 'react-native-svg';
 import { useDemo } from '../context/DemoContext';
-import { colors } from '../theme/colors';
+import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 // Add session service imports
 import { useSession } from '../hooks/useSession';
 import { sessionService, SessionLabel } from '../services/sessionService';
 import { useTasks } from '../hooks/useTasks';
 import { tasksService, CreateTaskRequest, Task } from '../services/tasksService';
-
-// Updated color theme
-const darkTheme = {
-  background: {
-    primary: colors.background.dark,     // Use global dark blue
-    secondary: colors.background.card,   // Use global card background
-    card: colors.background.card,        // Use global card background
-  },
-  primary: {
-    main: colors.primary.main,        // Use global primary color
-  },
-  text: {
-    primary: colors.text.primary,     // Use global text color
-    secondary: colors.text.secondary,   // Use global secondary text color
-  }
-};
 
 // Circle constants for the progress ring
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -75,16 +59,74 @@ interface NumberPickerProps {
 
 const NumberPicker = ({ value, onValueChange, options, label, disabled }: NumberPickerProps) => {
   const [isVisible, setIsVisible] = useState(false);
+  const { colors, getScaledFontSize, isDarkMode } = useTheme();
+
+  const pickerStyles = StyleSheet.create({
+    pickerWrapper: {
+      alignItems: 'center',
+      marginHorizontal: 4,
+    },
+    pickerLabel: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+      marginBottom: 4,
+    },
+    pickerButton: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      minWidth: 60,
+      alignItems: 'center',
+    },
+    pickerButtonDisabled: {
+      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+    },
+    pickerButtonText: {
+      fontSize: getScaledFontSize(24),
+      fontWeight: '600',
+      color: colors.text.primary,
+    },
+    pickerButtonTextDisabled: {
+      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+    },
+    modalOverlay: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    modalContent: {
+      backgroundColor: colors.background.card,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      maxHeight: '80%',
+    },
+    modalOption: {
+      paddingVertical: 16,
+      paddingHorizontal: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+    },
+    modalOptionText: {
+      fontSize: getScaledFontSize(16),
+      color: colors.text.primary,
+      textAlign: 'center',
+    },
+    modalOptionTextSelected: {
+      color: colors.primary.main,
+      fontWeight: 'bold',
+    },
+  });
 
   return (
-    <View style={styles.pickerWrapper}>
-      <Text style={styles.pickerLabel}>{label}</Text>
+    <View style={pickerStyles.pickerWrapper}>
+      <Text style={pickerStyles.pickerLabel}>{label}</Text>
       <TouchableOpacity 
-        style={[styles.pickerButton, disabled && styles.pickerButtonDisabled]}
+        style={[pickerStyles.pickerButton, disabled && pickerStyles.pickerButtonDisabled]}
         onPress={() => !disabled && setIsVisible(true)}
         disabled={disabled}
       >
-        <Text style={[styles.pickerButtonText, disabled && styles.pickerButtonTextDisabled]}>
+        <Text style={[pickerStyles.pickerButtonText, disabled && pickerStyles.pickerButtonTextDisabled]}>
           {value.toString().padStart(2, '0')}
         </Text>
       </TouchableOpacity>
@@ -95,24 +137,24 @@ const NumberPicker = ({ value, onValueChange, options, label, disabled }: Number
         onRequestClose={() => setIsVisible(false)}
       >
         <TouchableOpacity 
-          style={styles.modalOverlay}
+          style={pickerStyles.modalOverlay}
           activeOpacity={1}
           onPress={() => setIsVisible(false)}
         >
-          <View style={styles.modalContent}>
+          <View style={pickerStyles.modalContent}>
             <ScrollView>
               {options.map((option: PickerOption) => (
                 <TouchableOpacity
                   key={option.value}
-                  style={styles.modalOption}
+                  style={pickerStyles.modalOption}
                   onPress={() => {
                     onValueChange(parseInt(option.value, 10));
                     setIsVisible(false);
                   }}
                 >
                   <Text style={[
-                    styles.modalOptionText,
-                    value === parseInt(option.value, 10) && styles.modalOptionTextSelected
+                    pickerStyles.modalOptionText,
+                    value === parseInt(option.value, 10) && pickerStyles.modalOptionTextSelected
                   ]}>
                     {option.label}
                   </Text>
@@ -132,7 +174,594 @@ type NavigationProp = StackNavigationProp<RootStackParamList>;
 // Main DeepWorkScreen Component
 const DeepWorkScreen = () => {
   const navigation = useNavigation<NavigationProp>();
+  const { colors, getScaledFontSize, isDarkMode } = useTheme();
   const [activeTab, setActiveTab] = useState<'timer' | 'tasks' | 'history'>('timer');
+  
+  // Move styles inside component to access dynamic theme colors
+  const styles = StyleSheet.create({
+    mainContainer: {
+      flex: 1,
+      backgroundColor: colors.background.dark,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      backgroundColor: colors.background.dark,
+    },
+    title: {
+      fontSize: getScaledFontSize(20),
+      fontWeight: 'bold',
+      color: colors.text.primary,
+    },
+    customTabBar: {
+      flexDirection: 'row',
+      backgroundColor: colors.background.card,
+      borderBottomWidth: 0,
+      elevation: 0,
+      shadowOpacity: 0,
+    },
+    customTab: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 16,
+      position: 'relative',
+    },
+    activeCustomTab: {
+      backgroundColor: 'transparent', 
+    },
+    customTabText: {
+      color: colors.text.secondary,
+      fontSize: getScaledFontSize(14),
+      fontWeight: '600',
+    },
+    activeCustomTabText: {
+      color: colors.text.primary,
+    },
+    activeIndicator: {
+      position: 'absolute',
+      bottom: 0,
+      height: 3,
+      width: '40%',
+      backgroundColor: colors.primary.main,
+      borderTopLeftRadius: 3,
+      borderTopRightRadius: 3,
+    },
+    contentContainer: {
+      flex: 1,
+    },
+    tabContentContainer: {
+      flex: 1,
+      backgroundColor: colors.background.dark,
+      paddingHorizontal: 16,
+      paddingTop: 20,
+    },
+    scrollContentContainer: {
+      paddingBottom: 40,
+    },
+    setupContainer: {
+      alignItems: 'center',
+      paddingTop: 0,
+      paddingBottom: 40,
+    },
+    progressRingContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginVertical: 16,
+      position: 'relative',
+    },
+    progressRing: {
+      // No transform needed as we're using the rotation prop
+    },
+    timerDisplay: {
+      position: 'absolute',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.background.dark,
+      borderRadius: 100,
+      width: RADIUS * 1.2,
+      height: RADIUS * 1.2,
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+    },
+    timerText: {
+      fontSize: getScaledFontSize(36),
+      fontWeight: '700',
+      color: colors.text.primary,
+      letterSpacing: 1,
+    },
+    timerLabel: {
+      fontSize: getScaledFontSize(14),
+      fontWeight: '500',
+      color: colors.text.secondary,
+      marginTop: 4,
+      letterSpacing: 0.5,
+    },
+    timePickerContainer: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      justifyContent: 'center',
+      marginBottom: 40,
+    },
+    timeSeparator: {
+      fontSize: getScaledFontSize(24),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 10,
+      marginHorizontal: 4,
+    },
+    startButton: {
+      backgroundColor: colors.primary.main,
+      borderRadius: 12,
+      paddingVertical: 14,
+      paddingHorizontal: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '80%',
+    },
+    startButtonDisabled: {
+      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+    },
+    startButtonText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+    },
+    timerControls: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      width: '95%',
+      marginBottom: 24,
+    },
+    timerButton: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+      marginHorizontal: 4,
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      justifyContent: 'center',
+      minWidth: 90,
+    },
+    pauseButton: {
+      backgroundColor: 'rgba(255, 69, 58, 0.2)',
+    },
+    timerButtonText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(14),
+      fontWeight: '500',
+      marginLeft: 5,
+      textAlign: 'center',
+    },
+    modalOverlay: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    modalContent: {
+      backgroundColor: colors.background.card,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      maxHeight: '80%',
+    },
+    modalOption: {
+      paddingVertical: 16,
+      paddingHorizontal: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+    },
+    modalOptionText: {
+      fontSize: getScaledFontSize(16),
+      color: colors.text.primary,
+      textAlign: 'center',
+    },
+    modalOptionTextSelected: {
+      color: colors.primary.main,
+      fontWeight: 'bold',
+    },
+    // Continue with additional styles...
+    taskStatsContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      padding: 16,
+      backgroundColor: colors.background.card,
+      borderRadius: 8,
+      marginBottom: 16,
+      marginTop: 8,
+    },
+    taskStatItem: {
+      alignItems: 'center',
+    },
+    taskStatValue: {
+      fontSize: getScaledFontSize(18),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 4,
+    },
+    taskStatLabel: {
+      fontSize: getScaledFontSize(14),
+      fontWeight: '500',
+      color: colors.text.secondary,
+    },
+    errorContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+      backgroundColor: colors.background.card,
+      borderRadius: 8,
+      marginBottom: 16,
+    },
+    errorText: {
+      flex: 1,
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(16),
+      fontWeight: '500',
+    },
+    retryButton: {
+      padding: 12,
+      backgroundColor: colors.primary.main,
+      borderRadius: 8,
+      alignItems: 'center',
+    },
+    retryButtonText: {
+      color: '#FFFFFF',
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    loadingText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(16),
+      fontWeight: '500',
+      marginTop: 16,
+    },
+    taskContent: {
+      flex: 1,
+    },
+    taskHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    taskMetadata: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 8,
+      marginBottom: 8,
+    },
+    taskPriorityBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 16,
+      marginRight: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.2,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    taskPriorityText: {
+      fontSize: getScaledFontSize(12),
+      fontWeight: '600',
+      color: '#FFFFFF',
+      marginLeft: 4,
+      textTransform: 'capitalize',
+    },
+    taskCategoryBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 16,
+      marginRight: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.2,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    taskCategoryText: {
+      fontSize: getScaledFontSize(12),
+      fontWeight: '600',
+      color: '#FFFFFF',
+      marginLeft: 4,
+      textTransform: 'capitalize',
+    },
+    taskDuration: {
+      fontSize: getScaledFontSize(12),
+      fontWeight: '500',
+      color: colors.text.secondary,
+    },
+    taskDescription: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.primary,
+      marginTop: 4,
+    },
+    addTaskButtonDisabled: {
+      opacity: 0.5,
+    },
+    taskItemCompleted: {
+      opacity: 0.7,
+      backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    },
+    metricsContainer: {
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 16,
+      marginVertical: 10,
+    },
+    metricsTitle: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 12,
+      textAlign: 'center',
+    },
+    distractionCountContainer: {
+      alignItems: 'center',
+      marginVertical: 20,
+    },
+    distractionCountText: {
+      fontSize: getScaledFontSize(18),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginTop: 8,
+    },
+    taskInputContainer: {
+      flexDirection: 'row',
+      marginVertical: 16,
+      alignItems: 'center',
+    },
+    taskInput: {
+      flex: 1,
+      backgroundColor: colors.background.card,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginRight: 8,
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(16),
+    },
+    addTaskButton: {
+      backgroundColor: colors.primary.main,
+      borderRadius: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    addTaskButtonText: {
+      color: '#FFFFFF',
+      fontSize: getScaledFontSize(14),
+      fontWeight: '600',
+    },
+    taskItem: {
+      backgroundColor: colors.background.card,
+      borderRadius: 8,
+      padding: 12,
+      marginVertical: 4,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    taskCheckbox: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 2,
+      borderColor: colors.text.secondary,
+      marginRight: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    taskCheckboxChecked: {
+      backgroundColor: colors.primary.main,
+      borderColor: colors.primary.main,
+    },
+    taskText: {
+      flex: 1,
+      fontSize: getScaledFontSize(16),
+      color: colors.text.primary,
+    },
+    taskTextCompleted: {
+      textDecorationLine: 'line-through',
+      color: colors.text.secondary,
+    },
+    deleteTaskButton: {
+      padding: 8,
+    },
+    historyContainer: {
+      padding: 16,
+    },
+    historyTitle: {
+      fontSize: getScaledFontSize(18),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 16,
+    },
+    sessionSetupModal: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    sessionSetupContent: {
+      backgroundColor: colors.background.card,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      paddingTop: 20,
+      paddingHorizontal: 20,
+      paddingBottom: 20,
+      maxHeight: '80%',
+    },
+    sessionSetupHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 20,
+    },
+    sessionSetupTitle: {
+      fontSize: getScaledFontSize(20),
+      fontWeight: '600',
+      color: colors.text.primary,
+    },
+    sessionSetupCloseButton: {
+      padding: 8,
+    },
+    sessionNameInput: {
+      backgroundColor: colors.background.dark,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 16,
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(16),
+    },
+    sessionTypeContainer: {
+      marginBottom: 16,
+    },
+    sessionTypeLabel: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 8,
+    },
+    sessionTypeOptions: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+    },
+    sessionTypeButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      borderWidth: 1,
+      borderColor: colors.text.secondary,
+      borderRadius: 20,
+      marginRight: 8,
+      marginBottom: 8,
+      backgroundColor: colors.background.dark,
+    },
+    sessionTypeButtonActive: {
+      backgroundColor: colors.primary.main,
+      borderColor: colors.primary.main,
+    },
+    sessionTypeText: {
+      fontSize: getScaledFontSize(12),
+      fontWeight: '600',
+      color: colors.text.secondary,
+      marginLeft: 6,
+    },
+    sessionTypeTextActive: {
+      color: '#FFFFFF',
+    },
+    sessionLabelsContainer: {
+      flexDirection: 'row',
+    },
+    sessionLabelButton: {
+      padding: 8,
+      borderWidth: 1,
+      borderColor: colors.text.secondary,
+      borderRadius: 16,
+      marginRight: 8,
+      backgroundColor: colors.background.card,
+    },
+    sessionLabelButtonActive: {
+      backgroundColor: colors.primary.main,
+    },
+    sessionLabelText: {
+      fontSize: getScaledFontSize(12),
+      fontWeight: '600',
+      color: colors.text.secondary,
+    },
+    sessionLabelTextActive: {
+      color: '#FFFFFF',
+    },
+    sessionSetupActions: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingTop: 16,
+      gap: 12,
+    },
+    sessionCancelButton: {
+      flex: 1,
+      backgroundColor: colors.background.card,
+      borderRadius: 8,
+      paddingVertical: 12,
+      alignItems: 'center',
+    },
+    sessionCancelButtonText: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+      color: colors.text.secondary,
+    },
+    sessionStartButton: {
+      flex: 1,
+      backgroundColor: colors.primary.main,
+      borderRadius: 8,
+      paddingVertical: 12,
+      alignItems: 'center',
+    },
+    sessionStartButtonDisabled: {
+      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+    },
+    sessionStartButtonText: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+      color: '#FFFFFF',
+    },
+    // Add remaining missing styles
+    emptyStateContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: 40,
+    },
+    emptyStateText: {
+      fontSize: getScaledFontSize(18),
+      color: colors.text.primary,
+      marginTop: 16,
+      fontWeight: '600',
+    },
+    emptyStateSubtext: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginTop: 8,
+    },
+    taskList: {
+      flex: 1,
+    },
+    taskListContent: {
+      paddingBottom: 20,
+    },
+    distractionButton: {
+      backgroundColor: 'rgba(255, 152, 0, 0.2)',
+    },
+    sessionNameInputContainer: {
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+    },
+    sessionNameLabel: {
+      fontSize: getScaledFontSize(14),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 8,
+    },
+    sessionLabelsOptions: {
+      flexDirection: 'row',
+    },
+  });
   
   // Session management with backend integration
   const {
@@ -763,7 +1392,7 @@ const DeepWorkScreen = () => {
                     cx={RADIUS}
                     cy={RADIUS}
                     r={RADIUS - (STROKE_WIDTH / 2) - 5}
-                    stroke={darkTheme.background.secondary}
+                    stroke={colors.background.card}
                     strokeWidth={STROKE_WIDTH}
                     fill="transparent"
                     opacity={0.5}
@@ -902,7 +1531,7 @@ const DeepWorkScreen = () => {
               <TextInput
                 style={styles.taskInput}
                 placeholder="Add a task for this session..."
-                placeholderTextColor={darkTheme.text.secondary}
+                placeholderTextColor={colors.text.secondary}
                 value={newTaskTitle}
                 onChangeText={setNewTaskTitle}
                 returnKeyType="done"
@@ -915,13 +1544,9 @@ const DeepWorkScreen = () => {
                 disabled={!newTaskTitle.trim() || tasksLoading}
               >
                 {tasksLoading ? (
-                  <ActivityIndicator size="small" color={darkTheme.text.secondary} />
+                  <ActivityIndicator size="small" color={colors.text.secondary} />
                 ) : (
-                  <MaterialCommunityIcons 
-                    name="plus" 
-                    size={24} 
-                    color={newTaskTitle.trim() ? darkTheme.text.primary : darkTheme.text.secondary} 
-                  />
+                  <Text style={styles.addTaskButtonText}>Add Task</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -929,7 +1554,7 @@ const DeepWorkScreen = () => {
             {/* Task List */}
             {tasksLoading && tasks.length === 0 ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={darkTheme.primary.main} />
+                <ActivityIndicator size="large" color={colors.primary.main} />
                 <Text style={styles.loadingText}>Loading tasks...</Text>
               </View>
             ) : tasks.length === 0 ? (
@@ -937,7 +1562,7 @@ const DeepWorkScreen = () => {
                 <MaterialCommunityIcons 
                   name="clipboard-text-outline" 
                   size={60} 
-                  color={darkTheme.text.secondary} 
+                  color={colors.text.secondary} 
                 />
                 <Text style={styles.emptyStateText}>No tasks added yet</Text>
                 <Text style={styles.emptyStateSubtext}>Add tasks to keep track of your work</Text>
@@ -950,7 +1575,7 @@ const DeepWorkScreen = () => {
                   <RefreshControl
                     refreshing={tasksLoading}
                     onRefresh={refreshTasks}
-                    tintColor={darkTheme.primary.main}
+                    tintColor={colors.primary.main}
                   />
                 }
               >
@@ -966,26 +1591,26 @@ const DeepWorkScreen = () => {
                       <MaterialCommunityIcons
                         name={task.completed ? "checkbox-marked-circle" : "checkbox-blank-circle-outline"}
                         size={24}
-                        color={task.completed ? darkTheme.primary.main : darkTheme.text.secondary}
+                        color={task.completed ? colors.primary.main : colors.text.secondary}
                       />
                     </TouchableOpacity>
                     
                     <View style={styles.taskContent}>
                       <View style={styles.taskHeader}>
                         <Text style={[
-                          styles.taskTitle,
-                          task.completed && styles.taskTitleCompleted
+                          styles.taskText,
+                          task.completed && styles.taskTextCompleted
                         ]}>
                           {task.title}
                         </Text>
                         <TouchableOpacity
-                          style={styles.deleteButton}
+                          style={styles.deleteTaskButton}
                           onPress={() => deleteTask(task.id)}
                         >
                           <MaterialCommunityIcons
                             name="trash-can-outline"
                             size={18}
-                            color={darkTheme.text.secondary}
+                            color={colors.text.secondary}
                           />
                         </TouchableOpacity>
                       </View>
@@ -1083,7 +1708,7 @@ const DeepWorkScreen = () => {
             <MaterialCommunityIcons 
               name={isRunning ? "pause" : "play"} 
               size={24} 
-              color={darkTheme.text.primary} 
+              color={colors.text.primary} 
             />
             <Text style={styles.timerButtonText}>
               {isRunning ? "Pause" : "Resume"}
@@ -1098,7 +1723,7 @@ const DeepWorkScreen = () => {
             <MaterialCommunityIcons 
               name="refresh" 
               size={24} 
-              color={darkTheme.text.primary} 
+              color={colors.text.primary} 
             />
             <Text style={styles.timerButtonText}>Reset</Text>
           </TouchableOpacity>
@@ -1111,7 +1736,7 @@ const DeepWorkScreen = () => {
               <MaterialCommunityIcons 
                 name="bell-off-outline" 
                 size={22} 
-                color={darkTheme.text.primary} 
+                color={colors.text.primary} 
               />
               <Text style={styles.timerButtonText}>
                 Distract
@@ -1143,22 +1768,22 @@ const DeepWorkScreen = () => {
       animationType="slide"
       onRequestClose={() => setShowSessionSetup(false)}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.sessionSetupModal}>
+      <View style={styles.sessionSetupModal}>
+        <View style={styles.sessionSetupContent}>
           <View style={styles.sessionSetupHeader}>
             <Text style={styles.sessionSetupTitle}>Session Setup</Text>
             <TouchableOpacity onPress={() => setShowSessionSetup(false)}>
-              <MaterialCommunityIcons name="close" size={24} color={darkTheme.text.primary} />
+              <MaterialCommunityIcons name="close" size={24} color={colors.text.primary} />
             </TouchableOpacity>
           </View>
 
           {/* Session Name Input */}
-          <View style={styles.sessionInputContainer}>
-            <Text style={styles.sessionInputLabel}>Session Name</Text>
+          <View style={styles.sessionNameInputContainer}>
+            <Text style={styles.sessionNameLabel}>Session Name</Text>
             <TextInput
-              style={styles.sessionInput}
+              style={styles.sessionNameInput}
               placeholder="Enter session name..."
-              placeholderTextColor={darkTheme.text.secondary}
+              placeholderTextColor={colors.text.secondary}
               value={sessionName}
               onChangeText={setSessionName}
               returnKeyType="next"
@@ -1166,9 +1791,9 @@ const DeepWorkScreen = () => {
           </View>
 
           {/* Session Type Picker */}
-          <View style={styles.sessionInputContainer}>
-            <Text style={styles.sessionInputLabel}>Session Type</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sessionTypeContainer}>
+          <View style={styles.sessionTypeContainer}>
+            <Text style={styles.sessionTypeLabel}>Session Type</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sessionTypeOptions}>
               {(['focus', 'meditation', 'study', 'break', 'custom'] as const).map((type) => (
                 <TouchableOpacity
                   key={type}
@@ -1181,7 +1806,7 @@ const DeepWorkScreen = () => {
                   <MaterialCommunityIcons
                     name={sessionService.getSessionTypeIcon(type) as any}
                     size={20}
-                    color={sessionType === type ? '#FFFFFF' : darkTheme.text.secondary}
+                    color={sessionType === type ? '#FFFFFF' : colors.text.secondary}
                   />
                   <Text style={[
                     styles.sessionTypeText,
@@ -1195,9 +1820,9 @@ const DeepWorkScreen = () => {
           </View>
 
           {/* Session Labels */}
-          <View style={styles.sessionInputContainer}>
-            <Text style={styles.sessionInputLabel}>Labels (Optional)</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sessionLabelsContainer}>
+          <View style={styles.sessionLabelsContainer}>
+            <Text style={styles.sessionLabelText}>Labels (Optional)</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sessionLabelsOptions}>
               {availableLabels.slice(0, 6).map((label) => {
                 const labelId = typeof label.id === 'string' ? label.id : label.id.toString();
                 const isSelected = selectedLabels.includes(labelId);
@@ -1208,7 +1833,7 @@ const DeepWorkScreen = () => {
                     style={[
                       styles.sessionLabelButton,
                       isSelected && styles.sessionLabelButtonActive,
-                      { borderColor: label.color || darkTheme.primary.main }
+                      { borderColor: label.color || colors.primary.main }
                     ]}
                     onPress={() => {
                       if (isSelected) {
@@ -1303,583 +1928,5 @@ const DeepWorkScreen = () => {
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  mainContainer: {
-    flex: 1,
-    backgroundColor: darkTheme.background.primary,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: darkTheme.background.primary,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: darkTheme.text.primary,
-  },
-  customTabBar: {
-    flexDirection: 'row',
-    backgroundColor: darkTheme.background.secondary,
-    borderBottomWidth: 0,
-    elevation: 0,
-    shadowOpacity: 0,
-  },
-  customTab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 16,
-    position: 'relative',
-  },
-  activeCustomTab: {
-    backgroundColor: 'transparent', 
-  },
-  customTabText: {
-    color: darkTheme.text.secondary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  activeCustomTabText: {
-    color: darkTheme.text.primary,
-  },
-  activeIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    height: 3,
-    width: '40%',
-    backgroundColor: darkTheme.primary.main,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-  },
-  contentContainer: {
-    flex: 1,
-  },
-  tabContentContainer: {
-    flex: 1,
-    backgroundColor: darkTheme.background.primary,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-  },
-  scrollContentContainer: {
-    paddingBottom: 40, // Add bottom padding for better spacing from tab bar
-  },
-  setupContainer: {
-    alignItems: 'center',
-    paddingTop: 0,
-    paddingBottom: 40, // Add padding at the bottom of the setup container
-  },
-  progressRingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 16,
-    position: 'relative',
-  },
-  progressRing: {
-    // No transform needed as we're using the rotation prop
-  },
-  timerDisplay: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: darkTheme.background.primary,
-    borderRadius: 100,
-    width: RADIUS * 1.2,
-    height: RADIUS * 1.2,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
-  timerText: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: darkTheme.text.primary,
-    letterSpacing: 1,
-  },
-  timerLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: darkTheme.text.secondary,
-    marginTop: 4,
-    letterSpacing: 0.5,
-  },
-  timePickerContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    marginBottom: 40,
-  },
-  pickerWrapper: {
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  pickerLabel: {
-    fontSize: 12,
-    color: darkTheme.text.secondary,
-    marginBottom: 4,
-  },
-  pickerButton: {
-    backgroundColor: darkTheme.background.card,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    minWidth: 60,
-    alignItems: 'center',
-  },
-  pickerButtonDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  pickerButtonText: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-  },
-  pickerButtonTextDisabled: {
-    color: 'rgba(255, 255, 255, 0.5)',
-  },
-  timeSeparator: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-    marginBottom: 10,
-    marginHorizontal: 4,
-  },
-  startButton: {
-    backgroundColor: darkTheme.primary.main,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '80%',
-  },
-  startButtonDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  startButtonText: {
-    color: darkTheme.text.primary,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  timerControls: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '95%',
-    marginBottom: 24,
-  },
-  timerButton: {
-    backgroundColor: darkTheme.background.card,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginHorizontal: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    minWidth: 90,
-  },
-  pauseButton: {
-    backgroundColor: 'rgba(255, 69, 58, 0.2)',
-  },
-  timerButtonText: {
-    color: darkTheme.text.primary,
-    fontSize: 14,
-    fontWeight: '500',
-    marginLeft: 5,
-    textAlign: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modalContent: {
-    backgroundColor: darkTheme.background.secondary,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingVertical: 20,
-    maxHeight: 300,
-  },
-  modalOption: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-  },
-  modalOptionText: {
-    fontSize: 18,
-    color: darkTheme.text.secondary,
-    textAlign: 'center',
-  },
-  modalOptionTextSelected: {
-    color: darkTheme.primary.main,
-    fontWeight: '600',
-  },
-  metricsContainer: {
-    width: '100%',
-    marginBottom: 120, // Increased from 80 to 120
-    marginTop: 10,
-  },
-  metricsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text.primary,
-    marginBottom: 12,
-    textAlign: 'left',
-    paddingLeft: 24,
-  },
-  // Task Tab Styles
-  taskInputContainer: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    marginTop: 16,
-    backgroundColor: darkTheme.background.secondary,
-    borderRadius: 12,
-    overflow: 'hidden',
-    width: '100%',
-    marginHorizontal: 0,
-  },
-  taskInput: {
-    flex: 1,
-    color: darkTheme.text.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-  },
-  addTaskButton: {
-    padding: 12,
-    backgroundColor: darkTheme.background.card,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  taskList: {
-    flex: 1,
-  },
-  taskListContent: {
-    paddingBottom: 80, // Increased padding to ensure last task is fully visible above tab bar
-  },
-  taskItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: darkTheme.background.secondary,
-    borderRadius: 12,
-    marginBottom: 8,
-    padding: 16,
-  },
-  taskCheckbox: {
-    marginRight: 12,
-    marginTop: 2,
-  },
-  taskTitle: {
-    flex: 1,
-    color: darkTheme.text.primary,
-    fontSize: 16,
-    fontWeight: '500',
-    marginRight: 8,
-  },
-  taskTitleCompleted: {
-    textDecorationLine: 'line-through',
-    color: darkTheme.text.secondary,
-  },
-  deleteButton: {
-    padding: 4,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  emptyStateContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 60,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    color: darkTheme.text.primary,
-    marginTop: 16,
-    fontWeight: '600',
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: darkTheme.text.secondary,
-    marginTop: 8,
-  },
-  distractionButton: {
-    backgroundColor: 'rgba(255, 152, 0, 0.2)',
-  },
-  distractionCountContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
-    padding: 8,
-    backgroundColor: 'rgba(255, 152, 0, 0.1)',
-    borderRadius: 8,
-  },
-  distractionCountText: {
-    marginLeft: 8,
-    color: '#FF9800',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  sessionSetupModal: {
-    backgroundColor: darkTheme.background.secondary,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingVertical: 20,
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    maxHeight: '80%',
-  },
-  sessionSetupHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  sessionSetupTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: darkTheme.text.primary,
-  },
-  sessionInputContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  sessionInputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-    marginBottom: 8,
-  },
-  sessionInput: {
-    backgroundColor: darkTheme.background.card,
-    borderRadius: 8,
-    padding: 12,
-    color: darkTheme.text.primary,
-    fontSize: 16,
-  },
-  sessionTypeContainer: {
-    flexDirection: 'row',
-  },
-  sessionTypeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: darkTheme.text.secondary,
-    borderRadius: 8,
-    marginRight: 8,
-    backgroundColor: darkTheme.background.card,
-  },
-  sessionTypeButtonActive: {
-    borderColor: darkTheme.primary.main,
-    backgroundColor: darkTheme.primary.main,
-  },
-  sessionTypeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: darkTheme.text.secondary,
-    marginLeft: 6,
-  },
-  sessionTypeTextActive: {
-    color: '#FFFFFF',
-  },
-  sessionLabelsContainer: {
-    flexDirection: 'row',
-  },
-  sessionLabelButton: {
-    padding: 8,
-    borderWidth: 1,
-    borderColor: darkTheme.text.secondary,
-    borderRadius: 16,
-    marginRight: 8,
-    backgroundColor: darkTheme.background.card,
-  },
-  sessionLabelButtonActive: {
-    backgroundColor: darkTheme.primary.main,
-  },
-  sessionLabelText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: darkTheme.text.secondary,
-  },
-  sessionLabelTextActive: {
-    color: '#FFFFFF',
-  },
-  sessionSetupActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    gap: 12,
-  },
-  sessionCancelButton: {
-    flex: 1,
-    backgroundColor: darkTheme.background.card,
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  sessionCancelButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: darkTheme.text.secondary,
-  },
-  sessionStartButton: {
-    flex: 1,
-    backgroundColor: darkTheme.primary.main,
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  sessionStartButtonDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  sessionStartButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  taskStatsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 16,
-    backgroundColor: darkTheme.background.secondary,
-    borderRadius: 8,
-    marginBottom: 16,
-    marginTop: 8,
-  },
-  taskStatItem: {
-    alignItems: 'center',
-  },
-  taskStatValue: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-    marginBottom: 4,
-  },
-  taskStatLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: darkTheme.text.secondary,
-  },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: darkTheme.background.secondary,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  errorText: {
-    flex: 1,
-    color: darkTheme.text.primary,
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  retryButton: {
-    padding: 12,
-    backgroundColor: darkTheme.primary.main,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: darkTheme.text.primary,
-    fontSize: 16,
-    fontWeight: '500',
-    marginTop: 16,
-  },
-  taskContent: {
-    flex: 1,
-  },
-  taskHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  taskMetadata: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  taskPriorityBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 16,
-    marginRight: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  taskPriorityText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginLeft: 4,
-    textTransform: 'capitalize',
-  },
-  taskCategoryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 16,
-    marginRight: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  taskCategoryText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginLeft: 4,
-    textTransform: 'capitalize',
-  },
-  taskDuration: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: darkTheme.text.secondary,
-  },
-  taskDescription: {
-    fontSize: 14,
-    color: darkTheme.text.primary,
-    marginTop: 4,
-  },
-  addTaskButtonDisabled: {
-    opacity: 0.5,
-  },
-  taskItemCompleted: {
-    opacity: 0.7,
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-  },
-});
 
 export default DeepWorkScreen; 

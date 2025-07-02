@@ -3,25 +3,231 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSessionHistory } from '../hooks/useSessionHistory';
 import { sessionService } from '../services/sessionService';
-
-// Use the same dark theme as DeepWorkScreen
-const darkTheme = {
-  background: {
-    primary: '#131A2F',     // Dark blue for main background
-    secondary: '#1B2444',   // Slightly lighter blue for cards/elements
-    card: '#242E52',        // Card background
-  },
-  primary: {
-    main: '#4D7BFF',        // Blue accent color
-  },
-  text: {
-    primary: '#FFFFFF',     // White text
-    secondary: '#A0A8C2',   // Light gray for secondary text
-  },
-  warning: '#FFB020',       // Warning color for incomplete sessions
-};
+import { useTheme } from '../context/ThemeContext';
 
 const DeepWorkHistory = () => {
+  const { colors, getScaledFontSize, isDarkMode } = useTheme();
+  
+  // Move styles inside component to access dynamic theme colors
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.dark,
+    },
+    contentContainer: {
+      paddingBottom: 80,
+    },
+    centerContent: {
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    statsContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingVertical: 24,
+      gap: 12,
+    },
+    statCard: {
+      flex: 1,
+      backgroundColor: colors.background.card,
+      borderRadius: 16,
+      padding: 16,
+      alignItems: 'center',
+    },
+    statValue: {
+      fontSize: getScaledFontSize(24),
+      fontWeight: '700',
+      color: colors.text.primary,
+      marginVertical: 8,
+    },
+    statLabel: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.secondary,
+      textAlign: 'center',
+    },
+    timelineContainer: {
+      paddingHorizontal: 20,
+      paddingVertical: 24,
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 16,
+    },
+    sectionTitle: {
+      fontSize: getScaledFontSize(18),
+      fontWeight: '600',
+      color: colors.text.primary,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    sessionItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      marginBottom: 12,
+      padding: 16,
+    },
+    sessionStatus: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginRight: 12,
+    },
+    sessionInfo: {
+      flex: 1,
+    },
+    sessionName: {
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginBottom: 4,
+    },
+    sessionDate: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+    },
+    sessionDuration: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+    },
+    sessionFocus: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+    },
+    sessionMeta: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 4,
+    },
+    sessionLabels: {
+      flexDirection: 'row',
+      marginTop: 4,
+    },
+    sessionLabel: {
+      padding: 4,
+      borderRadius: 4,
+      marginRight: 4,
+    },
+    sessionLabelText: {
+      fontSize: getScaledFontSize(12),
+      color: colors.text.primary,
+    },
+    sessionIcon: {
+      marginRight: 12,
+    },
+    sessionActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    dismissButton: {
+      padding: 4,
+    },
+    insightsContainer: {
+      paddingHorizontal: 20,
+      paddingBottom: 24,
+    },
+    insightCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.background.card,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 12,
+    },
+    insightText: {
+      flex: 1,
+      marginLeft: 12,
+      fontSize: getScaledFontSize(14),
+      color: colors.text.primary,
+      lineHeight: 20,
+    },
+    emptyState: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: 40,
+    },
+    emptyStateText: {
+      fontSize: getScaledFontSize(18),
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginTop: 16,
+    },
+    emptyStateSubtext: {
+      fontSize: getScaledFontSize(14),
+      color: colors.text.secondary,
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    loadMoreButton: {
+      padding: 16,
+      backgroundColor: colors.primary.main,
+      borderRadius: 8,
+      alignItems: 'center',
+    },
+    loadMoreText: {
+      color: '#FFFFFF',
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+    },
+    loadingText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(16),
+      marginTop: 16,
+    },
+    errorText: {
+      color: colors.text.primary,
+      fontSize: getScaledFontSize(16),
+      textAlign: 'center',
+      marginVertical: 16,
+    },
+    retryButton: {
+      backgroundColor: colors.primary.main,
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 8,
+    },
+    retryButtonText: {
+      color: '#FFFFFF',
+      fontSize: getScaledFontSize(16),
+      fontWeight: '600',
+    },
+    undoButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.background.card,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      gap: 4,
+    },
+    undoButtonText: {
+      color: colors.primary.main,
+      fontSize: getScaledFontSize(12),
+      fontWeight: '500',
+    },
+    clearButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      gap: 4,
+    },
+    clearButtonText: {
+      color: colors.text.secondary,
+      fontSize: getScaledFontSize(12),
+      fontWeight: '500',
+    },
+  });
+
   const {
     sessions,
     labels,
@@ -102,7 +308,7 @@ const DeepWorkHistory = () => {
   if (isLoading && (!sessions || sessions.length === 0)) {
     return (
       <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color={darkTheme.primary.main} />
+        <ActivityIndicator size="large" color={colors.primary.main} />
         <Text style={styles.loadingText}>Loading session history...</Text>
       </View>
     );
@@ -111,7 +317,7 @@ const DeepWorkHistory = () => {
   if (error && (!sessions || sessions.length === 0)) {
     return (
       <View style={[styles.container, styles.centerContent]}>
-        <MaterialCommunityIcons name="alert-circle" size={48} color={darkTheme.warning} />
+        <MaterialCommunityIcons name="alert-circle" size={48} color={colors.warning} />
         <Text style={styles.errorText}>Failed to load session history</Text>
         <TouchableOpacity style={styles.retryButton} onPress={refresh}>
           <Text style={styles.retryButtonText}>Retry</Text>
@@ -128,24 +334,24 @@ const DeepWorkHistory = () => {
         <RefreshControl
           refreshing={isLoading}
           onRefresh={refresh}
-          tintColor={darkTheme.primary.main}
+          tintColor={colors.primary.main}
         />
       }
     >
       {/* Statistics Cards */}
       <View style={styles.statsContainer}>
         <View style={styles.statCard}>
-          <MaterialCommunityIcons name="clock-outline" size={24} color={darkTheme.primary.main} />
+          <MaterialCommunityIcons name="clock-outline" size={24} color={colors.primary.main} />
           <Text style={styles.statValue}>{formatDuration(stats.totalDuration)}</Text>
           <Text style={styles.statLabel}>Total Time</Text>
         </View>
         <View style={styles.statCard}>
-          <MaterialCommunityIcons name="check-circle-outline" size={24} color={darkTheme.primary.main} />
+          <MaterialCommunityIcons name="check-circle-outline" size={24} color={colors.primary.main} />
           <Text style={styles.statValue}>{stats.totalSessions}</Text>
           <Text style={styles.statLabel}>Sessions</Text>
         </View>
         <View style={styles.statCard}>
-          <MaterialCommunityIcons name="trending-up" size={24} color={darkTheme.primary.main} />
+          <MaterialCommunityIcons name="trending-up" size={24} color={colors.primary.main} />
           <Text style={styles.statValue}>{stats.averageFocus.toFixed(1)}</Text>
           <Text style={styles.statLabel}>Avg Focus</Text>
         </View>
@@ -158,13 +364,13 @@ const DeepWorkHistory = () => {
           <View style={styles.headerActions}>
             {dismissedSessions.size > 0 && (
               <TouchableOpacity style={styles.undoButton} onPress={undoAllDismissals}>
-                <MaterialCommunityIcons name="undo" size={16} color={darkTheme.primary.main} />
+                <MaterialCommunityIcons name="undo" size={16} color={colors.primary.main} />
                 <Text style={styles.undoButtonText}>Restore ({dismissedSessions.size})</Text>
               </TouchableOpacity>
             )}
             {visibleSessions.length > 0 && (
               <TouchableOpacity style={styles.clearButton} onPress={clearAllSessions}>
-                <MaterialCommunityIcons name="close-circle-outline" size={16} color={darkTheme.text.secondary} />
+                <MaterialCommunityIcons name="close-circle-outline" size={16} color={colors.text.secondary} />
                 <Text style={styles.clearButtonText}>Clear All</Text>
               </TouchableOpacity>
             )}
@@ -173,7 +379,7 @@ const DeepWorkHistory = () => {
         
         {(!visibleSessions || visibleSessions.length === 0) ? (
           <View style={styles.emptyState}>
-            <MaterialCommunityIcons name="history" size={48} color={darkTheme.text.secondary} />
+            <MaterialCommunityIcons name="history" size={48} color={colors.text.secondary} />
             <Text style={styles.emptyStateText}>
               {dismissedSessions.size > 0 ? 'All sessions hidden' : 'No sessions yet'}
             </Text>
@@ -213,7 +419,7 @@ const DeepWorkHistory = () => {
                     {session.labels.slice(0, 2).map((label) => (
                       <View 
                         key={typeof label.id === 'string' ? label.id : label.id.toString()}
-                        style={[styles.sessionLabel, { backgroundColor: label.color || darkTheme.primary.main }]}
+                        style={[styles.sessionLabel, { backgroundColor: label.color || colors.primary.main }]}
                       >
                         <Text style={styles.sessionLabelText}>{label.name}</Text>
                       </View>
@@ -227,14 +433,14 @@ const DeepWorkHistory = () => {
                   name={session.status === 'completed' ? "check-circle" : 
                         session.status === 'active' ? "play-circle" : "pause-circle"}
                   size={20}
-                  color={session.status === 'completed' ? darkTheme.primary.main : 
-                         session.status === 'active' ? '#4CAF50' : darkTheme.warning}
+                  color={session.status === 'completed' ? colors.primary.main : 
+                         session.status === 'active' ? '#4CAF50' : colors.warning}
                 />
                 <TouchableOpacity 
                   style={styles.dismissButton}
                   onPress={() => dismissSession(session.id)}
                 >
-                  <MaterialCommunityIcons name="close" size={16} color={darkTheme.text.secondary} />
+                  <MaterialCommunityIcons name="close" size={16} color={colors.text.secondary} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -249,7 +455,7 @@ const DeepWorkHistory = () => {
             disabled={isLoadingMore}
           >
             {isLoadingMore ? (
-              <ActivityIndicator size="small" color={darkTheme.primary.main} />
+              <ActivityIndicator size="small" color={colors.primary.main} />
             ) : (
               <Text style={styles.loadMoreText}>Load More</Text>
             )}
@@ -262,20 +468,20 @@ const DeepWorkHistory = () => {
         <View style={styles.insightsContainer}>
           <Text style={styles.sectionTitle}>Insights</Text>
           <View style={styles.insightCard}>
-            <MaterialCommunityIcons name="trending-up" size={20} color={darkTheme.primary.main} />
+            <MaterialCommunityIcons name="trending-up" size={20} color={colors.primary.main} />
             <Text style={styles.insightText}>
               Average session duration: {formatDuration(stats.averageDuration)}
             </Text>
           </View>
           <View style={styles.insightCard}>
-            <MaterialCommunityIcons name="star" size={20} color={darkTheme.primary.main} />
+            <MaterialCommunityIcons name="star" size={20} color={colors.primary.main} />
             <Text style={styles.insightText}>
               Most used session type: {stats.mostUsedType.charAt(0).toUpperCase() + stats.mostUsedType.slice(1)}
             </Text>
           </View>
           {stats.totalFocusTime > 0 && (
             <View style={styles.insightCard}>
-              <MaterialCommunityIcons name="brain" size={20} color={darkTheme.primary.main} />
+              <MaterialCommunityIcons name="brain" size={20} color={colors.primary.main} />
               <Text style={styles.insightText}>
                 High focus time: {formatDuration(stats.totalFocusTime)}
               </Text>
@@ -286,224 +492,5 @@ const DeepWorkHistory = () => {
     </ScrollView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: darkTheme.background.primary,
-  },
-  contentContainer: {
-    paddingBottom: 80,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: darkTheme.background.secondary,
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: darkTheme.text.primary,
-    marginVertical: 8,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: darkTheme.text.secondary,
-    textAlign: 'center',
-  },
-  timelineContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sessionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: darkTheme.background.secondary,
-    borderRadius: 12,
-    marginBottom: 12,
-    padding: 16,
-  },
-  sessionStatus: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 12,
-  },
-  sessionInfo: {
-    flex: 1,
-  },
-  sessionName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-    marginBottom: 4,
-  },
-  sessionDate: {
-    fontSize: 14,
-    color: darkTheme.text.secondary,
-  },
-  sessionDuration: {
-    fontSize: 14,
-    color: darkTheme.text.secondary,
-  },
-  sessionFocus: {
-    fontSize: 14,
-    color: darkTheme.text.secondary,
-  },
-  sessionMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  sessionLabels: {
-    flexDirection: 'row',
-    marginTop: 4,
-  },
-  sessionLabel: {
-    padding: 4,
-    borderRadius: 4,
-    marginRight: 4,
-  },
-  sessionLabelText: {
-    fontSize: 12,
-    color: darkTheme.text.primary,
-  },
-  sessionIcon: {
-    marginRight: 12,
-  },
-  sessionActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dismissButton: {
-    padding: 4,
-  },
-  insightsContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-  },
-  insightCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: darkTheme.background.secondary,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  insightText: {
-    flex: 1,
-    marginLeft: 12,
-    fontSize: 14,
-    color: darkTheme.text.primary,
-    lineHeight: 20,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-    marginTop: 16,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: darkTheme.text.secondary,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  loadMoreButton: {
-    padding: 16,
-    backgroundColor: darkTheme.primary.main,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  loadMoreText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-  },
-  centerContent: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 60,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: darkTheme.text.primary,
-    marginTop: 16,
-    fontWeight: '500',
-  },
-  errorText: {
-    fontSize: 16,
-    color: darkTheme.text.primary,
-    marginTop: 16,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  retryButton: {
-    backgroundColor: darkTheme.primary.main,
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    marginTop: 16,
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  undoButton: {
-    padding: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  undoButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-  },
-  clearButton: {
-    padding: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  clearButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: darkTheme.text.primary,
-  },
-});
 
 export default DeepWorkHistory; 
